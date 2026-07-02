@@ -57,6 +57,24 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   )
 }
 
+export function Loading({ label = 'Lade …' }: { label?: string }) {
+  return (
+    <div className="loading-row" role="status">
+      <span className="spinner" aria-hidden /> {label}
+    </div>
+  )
+}
+
+export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="state">
+      <span className="glyph" aria-hidden>∅</span>
+      <h3>{title}</h3>
+      {children ? <p>{children}</p> : null}
+    </div>
+  )
+}
+
 export function PageHead({ eyebrow, title, sub }: { eyebrow: string; title: ReactNode; sub?: ReactNode }) {
   return (
     <header className="page-head">

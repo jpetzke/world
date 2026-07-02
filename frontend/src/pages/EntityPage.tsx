@@ -5,7 +5,7 @@ import { api } from '../api/client'
 import type { SearchHit, Statement } from '../api/types'
 import { EntityAutocomplete } from '../components/EntityAutocomplete'
 import { StatementCard } from '../components/StatementCard'
-import { ErrorBox, Field, KindBadge, PageHead } from '../components/bits'
+import { Empty, ErrorBox, Field, KindBadge, Loading, PageHead } from '../components/bits'
 import { useVocabulary } from '../hooks/useVocabulary'
 
 export function EntityPage() {
@@ -64,7 +64,7 @@ export function EntityPage() {
     return [...groups.entries()]
   }, [view.data])
 
-  if (view.isLoading) return <p className="muted">Lade …</p>
+  if (view.isLoading) return <div className="page"><Loading /></div>
   if (view.error) return <ErrorBox error={view.error} />
   const { entity, incoming } = view.data!
   const timeTravelActive = validAt || systemAt || includeDeprecated
@@ -116,7 +116,11 @@ export function EntityPage() {
 
       <ErrorBox error={actionError} />
 
-      {grouped.length === 0 && <p className="muted">Keine Statements in dieser Sicht.</p>}
+      {grouped.length === 0 && (
+        <Empty title="Keine Statements in dieser Sicht">
+          Häng einen Fakt an — Subjekt ist diese Entity.
+        </Empty>
+      )}
       {grouped.map(([predicateId, statements]) => (
         <section key={predicateId} className="stmt-group">
           <span className="predicate">{predicateId}</span>

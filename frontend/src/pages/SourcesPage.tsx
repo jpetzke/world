@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { PipelineReport } from '../api/types'
-import { EntityLink, ErrorBox, Field, OkBox, PageHead, fmtDate } from '../components/bits'
+import { Empty, EntityLink, ErrorBox, Field, Loading, OkBox, PageHead, fmtDate } from '../components/bits'
 
 export function SourcesPage() {
   const sources = useQuery({
@@ -24,6 +24,14 @@ export function SourcesPage() {
 
       <div className="panel">
         <h2>Dokumente ({sources.data?.total ?? '–'})</h2>
+        {sources.isLoading && <Loading />}
+        {sources.data && sources.data.items.length === 0 && (
+          <Empty title="Noch keine Quellen">
+            Lade oben eine Datei hoch oder nutze den Ingest. Jedes Statement
+            referenziert eine Quelle von hier.
+          </Empty>
+        )}
+        {sources.data && sources.data.items.length > 0 && (
         <table>
           <thead>
             <tr><th>Activity</th><th>Agent</th><th>Datei</th><th>URL</th><th>Statements</th><th>Abgerufen</th></tr>
@@ -45,6 +53,7 @@ export function SourcesPage() {
             ))}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   )
@@ -124,7 +133,16 @@ function UploadPanel() {
 function IngestPanel() {
   const queryClient = useQueryClient()
   const [rawText, setRawText] = useState(
-    '{\n  "kind": "social_profile",\n  "name": "",\n  "email": ""\n}',
+    [
+      '{',
+      '  "kind": "social_profile",',
+      '  "name": "",',
+      '  "email": "",',
+      '  "aliases": [],',
+      '  "knows": [{ "name": "", "since": "" }],',
+      '  "accounts": [{ "platform": "", "handle": "", "uri": "", "follows": [] }]',
+      '}',
+    ].join('\n'),
   )
   const [activity, setActivity] = useState('manual:ingest')
   const [url, setUrl] = useState('')
@@ -214,8 +232,8 @@ export function SourceDetailPage() {
   const { id = '' } = useParams()
   const detail = useQuery({ queryKey: ['source', id], queryFn: () => api.source(id) })
 
-  if (detail.isLoading) return <p className="muted">Lade …</p>
-  if (detail.error) return <ErrorBox error={detail.error} />
+  if (detail.isLoading) return <div className="page"><Loading /></div>
+  if (detail.error) return <div className="page"><ErrorBox error={detail.error} /></div>
   const { source, statements, file } = detail.data!
 
   return (

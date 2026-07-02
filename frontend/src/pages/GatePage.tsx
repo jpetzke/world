@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api/client'
-import { ErrorBox, KindBadge, PageHead, fmtDate } from '../components/bits'
+import { Empty, ErrorBox, KindBadge, Loading, PageHead, fmtDate } from '../components/bits'
 
 export function GatePage() {
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>('pending')
@@ -42,7 +42,14 @@ export function GatePage() {
       </div>
 
       <ErrorBox error={decide.error} />
-      {empty && <p className="muted">Keine Proposals mit Status „{status}".</p>}
+      {proposals.isLoading && <Loading />}
+      {!proposals.isLoading && empty && (
+        <Empty title={`Keine Proposals · ${status}`}>
+          {status === 'pending'
+            ? 'Nichts wartet auf Review. Unbekannte Felder aus dem Ingest landen hier zur Freigabe.'
+            : `Keine ${status === 'approved' ? 'freigegebenen' : 'abgelehnten'} Proposals.`}
+        </Empty>
+      )}
 
       {typeProposals.map((p) => (
         <div key={p.id} className="panel">

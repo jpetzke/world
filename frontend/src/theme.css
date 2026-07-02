@@ -395,3 +395,93 @@ tr:hover td { background: var(--bg1); }
   .graph-canvas { height: 55vh; }
   .graph-side { width: 100%; border-left: none; border-top: 1px solid var(--line); }
 }
+
+/* --- Motion & Politur --------------------------------------------------
+   Subtil und einheitlich. Der globale reduced-motion-Guard (oben) schaltet
+   alles per !important ab — hier keine Rücksicht nötig. */
+
+a { transition: color .12s ease; }
+
+button, .btn {
+  transition: border-color .14s ease, background-color .14s ease,
+              color .14s ease, transform .05s ease;
+}
+button:active:not(:disabled) { transform: translateY(1px); }
+
+.nav a {
+  transition: color .14s ease, background-color .14s ease, border-color .14s ease;
+}
+
+input, select, textarea {
+  transition: border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--continuant);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--continuant) 18%, transparent);
+}
+
+td { transition: background-color .12s ease; }
+.tabs button { transition: color .14s ease, border-color .14s ease; }
+.chip, .kind, .rank, .badge { transition: border-color .14s ease, background-color .14s ease, color .14s ease; }
+
+.stmt { transition: border-color .14s ease, box-shadow .14s ease; }
+.stmt:hover { border-color: var(--line-strong); }
+
+/* Werte-Balken animieren beim Erscheinen */
+.conf-edge > i { transition: height .35s cubic-bezier(.2,.7,.3,1); }
+.simbar > i { transition: width .35s cubic-bezier(.2,.7,.3,1); }
+
+.autocomplete .options button:hover { transition: background-color .1s ease; }
+
+/* Sanftes Einblenden — genau eine Geste, nicht überall */
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.panel { animation: rise .22s ease both; }
+.error-box, .ok-box { animation: rise .18s ease both; }
+.autocomplete .options { animation: fade .12s ease both; transform-origin: top; }
+
+/* Schmale, thematische Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 6px;
+  border: 2px solid var(--bg0);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+/* --- Empty / Loading (einheitliche Zustände) --------------------------- */
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text2);
+}
+.state .glyph {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  display: grid; place-items: center;
+  color: var(--text1);
+}
+.state h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text1); }
+.state p { margin: 0; font-size: 12.5px; max-width: 340px; }
+
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--continuant);
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-row { display: flex; align-items: center; gap: 10px; color: var(--text2); padding: 20px 2px; }

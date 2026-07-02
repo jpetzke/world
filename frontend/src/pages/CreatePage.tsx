@@ -103,7 +103,7 @@ function EntityForm() {
           <Field label="Label">
             <input
               value={label}
-              placeholder="z. B. Jonas Petzke"
+              placeholder="Name der Entity"
               onChange={(e) => setLabel(e.target.value)}
             />
           </Field>

@@ -158,7 +158,7 @@ function TypeProposalForm() {
       {ok && <OkBox>Proposal eingereicht — Review im Gate.</OkBox>}
       <div className="row">
         <Field label="Typ-ID">
-          <input value={form.type_id} placeholder="Earthquake" onChange={(e) => setForm({ ...form, type_id: e.target.value })} />
+          <input value={form.type_id} placeholder="PascalCase, z. B. Influencer" onChange={(e) => setForm({ ...form, type_id: e.target.value })} />
         </Field>
         <Field label={`Parent (vererbt kind: ${parentKind})`}>
           <select value={form.parent_id} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}>
