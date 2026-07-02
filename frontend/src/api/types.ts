@@ -148,6 +148,17 @@ export interface SourceListItem {
   activity: string | null
   agent: string | null
   statement_count: number
+  file_name?: string | null
+  file_mime?: string | null
+  file_size?: number | null
+}
+
+export interface SourceFileMeta {
+  filename: string
+  mime: string
+  size_bytes: number
+  sha256: string
+  created_at: string
 }
 
 export interface SourceDoc extends SourceListItem {
@@ -157,6 +168,7 @@ export interface SourceDoc extends SourceListItem {
 export interface SourceDetail {
   source: SourceDoc
   statements: (Statement & { subject_label: string | null })[]
+  file?: SourceFileMeta | null
 }
 
 export interface ResolveResult {

@@ -9,12 +9,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from . import pipeline, queries, registry, resolution, statements
+from . import files, pipeline, queries, registry, resolution, statements
 from .db import get_conn, run_migrations
 from .entities import create_entity, get_entity
 from .errors import NotFoundError, RegistryError, ValidationError
@@ -320,6 +320,42 @@ def get_entities(
 @router.get("/sources")
 def get_sources(limit: int = 50, offset: int = 0, conn=Depends(db)):
     return queries.list_sources(conn, limit=min(limit, 200), offset=offset)
+
+
+@router.post("/sources/upload", status_code=201)
+async def post_source_upload(
+    file: UploadFile,
+    activity: str = Form("upload"),
+    url: str | None = Form(None),
+    conn=Depends(db),
+):
+    """Original-Datei hochladen: legt eine Quelle an und archiviert das
+    Original binär in der DB (1:1). Keine Extraktion — reines Archiv (§5)."""
+    data = await file.read()
+    doc = pipeline.ingest_document(
+        conn, raw={}, url=url, activity=activity,
+        agent=file.filename or "upload",
+    )
+    meta = files.store_source_file(
+        conn,
+        source_id=str(doc["id"]),
+        filename=file.filename or "unbenannt",
+        mime=file.content_type or "application/octet-stream",
+        data=data,
+    )
+    return {"source": doc, "file": meta}
+
+
+@router.get("/sources/{source_id}/file")
+def get_source_file_download(source_id: str, conn=Depends(db)):
+    row = files.get_source_file(conn, source_id)
+    return Response(
+        content=bytes(row["data"]),
+        media_type=row["mime"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{row["filename"]}"'
+        },
+    )
 
 
 @router.get("/sources/{source_id}")

@@ -1,7 +1,8 @@
 import type {
   Entity, EntityListItem, EntityView, GraphSnapshot, PipelineReport,
   Proposals, ResolveResult, SearchHit, SourceDetail, SourceDoc,
-  SourceListItem, Statement, Stats, TraverseNode, ValuePayload, Vocabulary,
+  SourceFileMeta, SourceListItem, Statement, Stats, TraverseNode,
+  ValuePayload, Vocabulary,
 } from './types'
 
 /** Gate-Rejects (422) tragen eine Problems-Liste — die zeigen wir inline. */
@@ -22,7 +23,8 @@ export class ApiError extends Error {
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch('/api' + path, {
     ...init,
-    headers: init?.body ? { 'content-type': 'application/json' } : undefined,
+    // FormData bekommt seinen multipart-Header vom Browser (mit boundary).
+    headers: typeof init?.body === 'string' ? { 'content-type': 'application/json' } : undefined,
   })
   if (!res.ok) {
     let detail: unknown = res.statusText
@@ -78,6 +80,16 @@ export const api = {
   listSources: (params: { limit?: number; offset?: number }) =>
     req<{ items: SourceListItem[]; total: number }>(`/sources${qs(params)}`),
   source: (id: string) => req<SourceDetail>(`/sources/${id}`),
+  uploadSource: (file: File, activity: string, url?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('activity', activity)
+    if (url) form.append('url', url)
+    return req<{ source: SourceDoc; file: SourceFileMeta }>('/sources/upload', {
+      method: 'POST', body: form,
+    })
+  },
+  fileUrl: (id: string) => `/api/sources/${id}/file`,
 
   createStatement: (body: {
     subject_id: string

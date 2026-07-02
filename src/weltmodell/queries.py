@@ -170,9 +170,12 @@ def list_sources(
     total = conn.execute("SELECT count(*) AS n FROM source_document").fetchone()["n"]
     items = conn.execute(
         """SELECT d.id, d.url, d.retrieved_at, d.activity, d.agent,
+                  f.filename AS file_name, f.mime AS file_mime,
+                  f.size_bytes AS file_size,
                   (SELECT count(*) FROM reference r WHERE r.source_id = d.id)
                   AS statement_count
            FROM source_document d
+           LEFT JOIN source_file f ON f.source_id = d.id
            ORDER BY d.retrieved_at DESC NULLS LAST
            LIMIT %s OFFSET %s""",
         (limit, offset),
@@ -200,7 +203,12 @@ def get_source(conn: psycopg.Connection, source_id: str) -> dict[str, Any]:
            ORDER BY s.system_from DESC LIMIT 200""",
         (source_id,),
     ).fetchall()
-    return {"source": doc, "statements": statements}
+    file_meta = conn.execute(
+        """SELECT filename, mime, size_bytes, sha256, created_at
+           FROM source_file WHERE source_id = %s""",
+        (source_id,),
+    ).fetchone()
+    return {"source": doc, "statements": statements, "file": file_meta}
 
 
 def stats(conn: psycopg.Connection) -> dict[str, Any]:
