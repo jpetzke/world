@@ -9,6 +9,7 @@ import psycopg
 
 from .embeddings import get_embedder
 from .entities import canonical_id, get_entity
+from .errors import NotFoundError
 
 
 def entity_view(
@@ -131,6 +132,90 @@ def traverse(
         }
         for r in rows
     ]
+
+
+def list_entities(
+    conn: psycopg.Connection,
+    *,
+    type_id: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    where = "merged_into IS NULL"
+    params: dict[str, Any] = {"limit": limit, "offset": offset,
+                              "type_id": type_id, "q": f"%{q}%" if q else None}
+    where += " AND (%(type_id)s::text IS NULL OR type_id = %(type_id)s)"
+    where += " AND (%(q)s::text IS NULL OR label ILIKE %(q)s)"
+    total = conn.execute(
+        f"SELECT count(*) AS n FROM entity WHERE {where}", params
+    ).fetchone()["n"]
+    items = conn.execute(
+        f"""SELECT id, type_id, label, created_at,
+                   (SELECT count(*) FROM statement s
+                    WHERE s.subject_id = entity.id AND s.system_to IS NULL)
+                   AS statement_count
+            FROM entity WHERE {where}
+            ORDER BY created_at DESC LIMIT %(limit)s OFFSET %(offset)s""",
+        params,
+    ).fetchall()
+    return {"items": items, "total": total}
+
+
+def list_sources(
+    conn: psycopg.Connection, *, limit: int = 50, offset: int = 0
+) -> dict[str, Any]:
+    total = conn.execute("SELECT count(*) AS n FROM source_document").fetchone()["n"]
+    items = conn.execute(
+        """SELECT d.id, d.url, d.retrieved_at, d.activity, d.agent,
+                  (SELECT count(*) FROM reference r WHERE r.source_id = d.id)
+                  AS statement_count
+           FROM source_document d
+           ORDER BY d.retrieved_at DESC NULLS LAST
+           LIMIT %s OFFSET %s""",
+        (limit, offset),
+    ).fetchall()
+    return {"items": items, "total": total}
+
+
+def get_source(conn: psycopg.Connection, source_id: str) -> dict[str, Any]:
+    doc = conn.execute(
+        "SELECT * FROM source_document WHERE id = %s", (source_id,)
+    ).fetchone()
+    if doc is None:
+        raise NotFoundError(f"source_document {source_id} nicht gefunden")
+    statements = conn.execute(
+        """SELECT s.id, s.predicate_id, s.rank, s.confidence, s.system_to,
+                  s.value_type, s.value_text, s.value_number, s.value_unit,
+                  s.value_datetime,
+                  subj.label AS subject_label, subj.id AS subject_id,
+                  obj.label AS object_label, obj.id AS object_id
+           FROM reference r
+           JOIN statement s ON s.id = r.statement_id
+           JOIN entity subj ON subj.id = s.subject_id
+           LEFT JOIN entity obj ON obj.id = s.object_id
+           WHERE r.source_id = %s
+           ORDER BY s.system_from DESC LIMIT 200""",
+        (source_id,),
+    ).fetchall()
+    return {"source": doc, "statements": statements}
+
+
+def stats(conn: psycopg.Connection) -> dict[str, Any]:
+    row = conn.execute(
+        """SELECT
+             (SELECT count(*) FROM entity WHERE merged_into IS NULL) AS entities,
+             (SELECT count(*) FROM statement WHERE system_to IS NULL) AS statements,
+             (SELECT count(*) FROM source_document) AS sources,
+             (SELECT count(*) FROM proposed_type WHERE status = 'pending')
+             + (SELECT count(*) FROM proposed_predicate WHERE status = 'pending')
+               AS pending_proposals"""
+    ).fetchone()
+    row["by_type"] = conn.execute(
+        """SELECT type_id, count(*) AS n FROM entity
+           WHERE merged_into IS NULL GROUP BY type_id ORDER BY n DESC"""
+    ).fetchall()
+    return row
 
 
 def semantic_search(

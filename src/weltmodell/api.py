@@ -6,15 +6,20 @@ LLM-Writes gleichermaßen (Invariante 2).
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from . import pipeline, queries, registry, resolution, statements
 from .db import get_conn, run_migrations
 from .entities import create_entity, get_entity
 from .errors import NotFoundError, RegistryError, ValidationError
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 @asynccontextmanager
@@ -24,6 +29,13 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Weltmodell", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5174"],  # Vite-Dev-Server
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+router = APIRouter()
 
 
 def db():
@@ -151,74 +163,74 @@ class IngestPayload(BaseModel):
 # --- Endpoints ---------------------------------------------------------------
 
 
-@app.get("/health")
+@router.get("/health")
 def health(conn=Depends(db)):
     conn.execute("SELECT 1")
     return {"status": "ok"}
 
 
-@app.get("/registry/types")
+@router.get("/registry/types")
 def get_types(conn=Depends(db)):
     return registry.list_types(conn)
 
 
-@app.get("/registry/interfaces")
+@router.get("/registry/interfaces")
 def get_interfaces(conn=Depends(db)):
     return registry.list_interfaces(conn)
 
 
-@app.get("/registry/predicates")
+@router.get("/registry/predicates")
 def get_predicates(conn=Depends(db)):
     return registry.list_predicates(conn)
 
 
-@app.get("/registry/vocabulary")
+@router.get("/registry/vocabulary")
 def get_vocabulary(conn=Depends(db)):
     """Das erlaubte Vokabular für LLM-Extraktoren (§7.1)."""
     return registry.vocabulary(conn)
 
 
-@app.get("/registry/proposals")
+@router.get("/registry/proposals")
 def get_proposals(status: str = "pending", conn=Depends(db)):
     return registry.list_proposals(conn, status)
 
 
-@app.post("/registry/proposals/types", status_code=201)
+@router.post("/registry/proposals/types", status_code=201)
 def post_type_proposal(payload: TypeProposal, conn=Depends(db)):
     return registry.propose_type(conn, **payload.model_dump())
 
 
-@app.post("/registry/proposals/predicates", status_code=201)
+@router.post("/registry/proposals/predicates", status_code=201)
 def post_predicate_proposal(payload: PredicateProposal, conn=Depends(db)):
     return registry.propose_predicate(conn, **payload.model_dump())
 
 
-@app.post("/registry/proposals/types/{proposal_id}/approve")
+@router.post("/registry/proposals/types/{proposal_id}/approve")
 def approve_type(proposal_id: str, conn=Depends(db)):
     return registry.approve_type(conn, proposal_id)
 
 
-@app.post("/registry/proposals/predicates/{proposal_id}/approve")
+@router.post("/registry/proposals/predicates/{proposal_id}/approve")
 def approve_predicate(proposal_id: str, conn=Depends(db)):
     return registry.approve_predicate(conn, proposal_id)
 
 
-@app.post("/registry/proposals/types/{proposal_id}/reject")
+@router.post("/registry/proposals/types/{proposal_id}/reject")
 def reject_type(proposal_id: str, conn=Depends(db)):
     return registry.reject_proposal(conn, "proposed_type", proposal_id)
 
 
-@app.post("/registry/proposals/predicates/{proposal_id}/reject")
+@router.post("/registry/proposals/predicates/{proposal_id}/reject")
 def reject_predicate(proposal_id: str, conn=Depends(db)):
     return registry.reject_proposal(conn, "proposed_predicate", proposal_id)
 
 
-@app.post("/entities", status_code=201)
+@router.post("/entities", status_code=201)
 def post_entity(payload: EntityCreate, conn=Depends(db)):
     return create_entity(conn, **payload.model_dump())
 
 
-@app.get("/entities/{entity_id}")
+@router.get("/entities/{entity_id}")
 def get_entity_view(
     entity_id: str,
     system_at: str | None = None,
@@ -232,17 +244,17 @@ def get_entity_view(
     )
 
 
-@app.post("/entities/{entity_id}/merge")
+@router.post("/entities/{entity_id}/merge")
 def post_merge(entity_id: str, payload: MergePayload, conn=Depends(db)):
     return resolution.merge_entity(conn, entity_id, payload.target_id)
 
 
-@app.post("/resolve")
+@router.post("/resolve")
 def post_resolve(payload: ResolvePayload, conn=Depends(db)):
     return resolution.resolve(conn, **payload.model_dump())
 
 
-@app.post("/sources", status_code=201)
+@router.post("/sources", status_code=201)
 def post_source(payload: SourceCreate, conn=Depends(db)):
     return pipeline.ingest_document(
         conn, raw=payload.raw or {}, url=payload.url,
@@ -251,31 +263,31 @@ def post_source(payload: SourceCreate, conn=Depends(db)):
     )
 
 
-@app.post("/statements", status_code=201)
+@router.post("/statements", status_code=201)
 def post_statement(payload: StatementCreate, conn=Depends(db)):
     data = payload.model_dump()
     data["qualifiers"] = [q for q in data["qualifiers"]]
     return statements.commit_statement(conn, **data)
 
 
-@app.post("/statements/{statement_id}/deprecate")
+@router.post("/statements/{statement_id}/deprecate")
 def post_deprecate(statement_id: str, payload: DeprecatePayload, conn=Depends(db)):
     return statements.deprecate_statement(conn, statement_id, valid_to=payload.valid_to)
 
 
-@app.post("/statements/{statement_id}/rank")
+@router.post("/statements/{statement_id}/rank")
 def post_rank(statement_id: str, payload: RankPayload, conn=Depends(db)):
     if payload.rank not in ("preferred", "normal", "deprecated"):
         raise ValidationError(f"Ungültiger Rank '{payload.rank}'")
     return statements.supersede_statement(conn, statement_id, rank=payload.rank)
 
 
-@app.get("/search")
+@router.get("/search")
 def get_search(q: str, type_id: str | None = None, limit: int = 10, conn=Depends(db)):
     return queries.semantic_search(conn, q, type_id=type_id, limit=limit)
 
 
-@app.post("/query/traverse")
+@router.post("/query/traverse")
 def post_traverse(payload: TraversePayload, conn=Depends(db)):
     return queries.traverse(
         conn, payload.start_id, max_depth=payload.max_depth,
@@ -283,7 +295,34 @@ def post_traverse(payload: TraversePayload, conn=Depends(db)):
     )
 
 
-@app.post("/ingest", status_code=201)
+@router.get("/stats")
+def get_stats(conn=Depends(db)):
+    return queries.stats(conn)
+
+
+@router.get("/entities")
+def get_entities(
+    type_id: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    conn=Depends(db),
+):
+    return queries.list_entities(conn, type_id=type_id, q=q,
+                                 limit=min(limit, 200), offset=offset)
+
+
+@router.get("/sources")
+def get_sources(limit: int = 50, offset: int = 0, conn=Depends(db)):
+    return queries.list_sources(conn, limit=min(limit, 200), offset=offset)
+
+
+@router.get("/sources/{source_id}")
+def get_source_detail(source_id: str, conn=Depends(db)):
+    return queries.get_source(conn, source_id)
+
+
+@router.post("/ingest", status_code=201)
 def post_ingest(payload: IngestPayload, conn=Depends(db)):
     doc = pipeline.ingest_document(
         conn, raw=payload.raw, url=payload.url, activity=payload.activity,
@@ -301,3 +340,21 @@ def post_ingest(payload: IngestPayload, conn=Depends(db)):
         report = pipeline.run_pipeline(conn, source_id=str(doc["id"]),
                                        agent=payload.agent, extractor=extractor)
     return {"source": doc, "pipeline": report}
+
+
+# --- Wiring: API unter /api, Frontend-Build als SPA auf / -------------------
+
+app.include_router(router, prefix="/api")
+
+if FRONTEND_DIST.exists():
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def spa(path: str):
+        candidate = (FRONTEND_DIST / path).resolve()
+        if (
+            path
+            and candidate.is_relative_to(FRONTEND_DIST)
+            and candidate.is_file()
+        ):
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")
