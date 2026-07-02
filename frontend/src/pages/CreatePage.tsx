@@ -69,7 +69,7 @@ function EntityForm() {
 
   const sortedTypes = useMemo(
     () => (vocab?.types ?? [])
-      .filter((t) => t.parent_id) // Wurzeltypen sind abstrakt
+      .slice()
       .sort((a, b) => (a.kind + a.id).localeCompare(b.kind + b.id)),
     [vocab],
   )

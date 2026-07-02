@@ -43,7 +43,7 @@ export function Dashboard() {
         <div>
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Alle Typen</option>
-            {vocab?.types.filter((t) => t.parent_id).map((t) => (
+            {vocab?.types.map((t) => (
               <option key={t.id} value={t.id}>{t.id}</option>
             ))}
           </select>

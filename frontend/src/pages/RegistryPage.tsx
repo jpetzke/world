@@ -132,7 +132,7 @@ function TypeTree({ types, interfacesOf }: {
 function TypeProposalForm() {
   const { vocab } = useVocabulary()
   const queryClient = useQueryClient()
-  const [form, setForm] = useState({ type_id: '', parent_id: 'Continuant', label: '', interfaces: [] as string[], rationale: '' })
+  const [form, setForm] = useState({ type_id: '', parent_id: 'Person', label: '', interfaces: [] as string[], rationale: '' })
   const [ok, setOk] = useState(false)
 
   const parentKind = vocab?.types.find((t) => t.id === form.parent_id)?.kind ?? 'continuant'
@@ -146,7 +146,7 @@ function TypeProposalForm() {
     }),
     onSuccess: () => {
       setOk(true)
-      setForm({ type_id: '', parent_id: 'Continuant', label: '', interfaces: [], rationale: '' })
+      setForm({ type_id: '', parent_id: 'Person', label: '', interfaces: [], rationale: '' })
       queryClient.invalidateQueries({ queryKey: ['proposals'] })
       queryClient.invalidateQueries({ queryKey: ['stats'] })
     },
