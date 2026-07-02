@@ -12,10 +12,10 @@ pytestmark = pytest.mark.skipif(
 
 ARTICLE = {
     "kind": "news_article",
-    "headline": "Jonas Beispiel investiert in TSMC",
+    "headline": "Jonas Beispiel und Tanja Beispiel vernetzen sich",
     "body": (
-        "Der Berliner Entwickler Jonas Beispiel (jonas@example.org) hat sich "
-        "an TSMC beteiligt. TSMC gilt als betroffen vom Taiwan-Konflikt."
+        "Der Berliner Entwickler Jonas Beispiel (jonas@example.org) kennt "
+        "Tanja Beispiel seit Jahren. Sein LinkedIn-Account ist jbeispiel."
     ),
     "published": "2026-06-15",
 }

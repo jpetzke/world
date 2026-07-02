@@ -55,13 +55,14 @@ class Extractor(Protocol):
 class RuleBasedExtractor:
     """Demo-Extraktor für raw-Dokumente der Form kind='social_profile'.
 
-    Versteht: name, email, employer{name, role, hours, since}, partner,
-    accounts[{platform, handle, uri}], mentions[{text, date, url}].
+    Minimalmodell (§9): nur Person und SocialMediaAccount. Versteht:
+    name, email, aliases[], knows[{name, since}],
+    accounts[{platform, handle, uri, follows[uri]}].
     Unbekannte Top-Level-Felder werden NICHT geschrieben, sondern als
     proposed_predicate ins Gate gegeben (§7.1).
     """
 
-    KNOWN_KEYS = {"kind", "name", "email", "employer", "partner", "accounts", "mentions"}
+    KNOWN_KEYS = {"kind", "name", "email", "aliases", "knows", "accounts"}
 
     def extract(self, raw: dict, vocabulary: dict) -> ExtractionResult:
         result = ExtractionResult()
@@ -71,6 +72,12 @@ class RuleBasedExtractor:
         identifiers = {"email": raw["email"]} if raw.get("email") else {}
         person = EntityRef("Person", label=raw["name"], identifiers=identifiers)
 
+        result.statements.append(
+            CandidateStatement(person, "name",
+                               {"type": "string", "text": raw["name"]},
+                               confidence=0.95)
+        )
+
         if raw.get("email"):
             result.statements.append(
                 CandidateStatement(person, "email",
@@ -78,33 +85,33 @@ class RuleBasedExtractor:
                                    confidence=0.95)
             )
 
-        if emp := raw.get("employer"):
-            qualifiers = []
-            if emp.get("role"):
-                qualifiers.append({"predicate_id": "role",
-                                   "value": {"type": "string", "text": emp["role"]}})
-            if emp.get("hours") is not None:
-                qualifiers.append({"predicate_id": "hours",
-                                   "value": {"type": "number", "number": emp["hours"]}})
+        for alias in raw.get("aliases", []):
             result.statements.append(
-                CandidateStatement(person, "works_at",
-                                   EntityRef("Organization", label=emp["name"]),
-                                   confidence=0.9, valid_from=emp.get("since"),
-                                   qualifiers=qualifiers)
+                CandidateStatement(person, "alias",
+                                   {"type": "string", "text": alias},
+                                   confidence=0.9)
             )
 
-        if partner := raw.get("partner"):
+        for other in raw.get("knows", []):
+            other_name = other.get("name") if isinstance(other, dict) else other
+            if not other_name:
+                continue
+            qualifiers = []
+            since = other.get("since") if isinstance(other, dict) else None
+            if since:
+                qualifiers.append({"predicate_id": "since",
+                                   "value": {"type": "datetime", "datetime": since}})
             result.statements.append(
-                CandidateStatement(person, "romantic_partner_of",
-                                   EntityRef("Person", label=partner),
-                                   confidence=0.85)
+                CandidateStatement(person, "knows",
+                                   EntityRef("Person", label=other_name),
+                                   confidence=0.85, qualifiers=qualifiers)
             )
 
         for acc in raw.get("accounts", []):
             handle, platform = acc.get("handle"), acc.get("platform")
             uri = acc.get("uri") or (f"{platform}:{handle}" if platform and handle else None)
             account = EntityRef(
-                "Account",
+                "SocialMediaAccount",
                 label=f"@{handle}" if handle else uri,
                 identifiers={"account_uri": uri} if uri else {},
             )
@@ -118,19 +125,13 @@ class RuleBasedExtractor:
                                            {"type": "string", "text": val},
                                            confidence=0.9)
                     )
-
-        for m in raw.get("mentions", []):
-            snippet = m.get("text", "")
-            mention = EntityRef("Mention", label=snippet[:80])
-            result.statements.append(
-                CandidateStatement(mention, "mentions", person,
-                                   confidence=0.8, valid_from=m.get("date"))
-            )
-            if snippet:
+            for target_uri in acc.get("follows", []):
+                target = EntityRef(
+                    "SocialMediaAccount", label=target_uri,
+                    identifiers={"account_uri": target_uri},
+                )
                 result.statements.append(
-                    CandidateStatement(mention, "text",
-                                       {"type": "string", "text": snippet},
-                                       confidence=0.8, valid_from=m.get("date"))
+                    CandidateStatement(account, "follows", target, confidence=0.8)
                 )
 
         # Restliche Felder: auf existierende Prädikate mappen — oder Gate (§7.1).

@@ -1,26 +1,31 @@
 """KI-Fill-Pipeline (Spec §7, §9): Ingest → Extract → Resolve → Validate → Commit,
-Review-Gate für unbekannte Prädikate, Dedup über Quellen hinweg."""
+Review-Gate für unbekannte Prädikate, Dedup über Quellen hinweg.
+
+Minimalmodell: nur Person und SocialMediaAccount."""
 
 from weltmodell import registry
 from weltmodell.pipeline import ingest_document, run_pipeline
 from weltmodell.queries import entity_view, semantic_search
 
+# Eigene Identität (eindeutige E-Mail/Namen), damit das deterministische Dedup
+# nicht mit Entities aus anderen Tests (z. B. dem nicht-deterministischen
+# LLM-Test) über gemeinsame Identity-Keys verschmilzt.
 PROFILE = {
     "kind": "social_profile",
-    "name": "Jonas Beispiel",
-    "email": "jonas@example.org",
-    "employer": {"name": "BLAID Beispiel GmbH", "role": "Werkstudent",
-                 "hours": 16, "since": "2024-10-01"},
-    "partner": "Tanja Beispiel",
-    "accounts": [{"platform": "linkedin", "handle": "jbeispiel",
-                  "uri": "linkedin.com/in/jbeispiel"}],
-    "mentions": [{"text": "Jonas Beispiel über Weltmodelle interviewt",
-                  "date": "2026-06-01"}],
+    "name": "Pipeline Beispielperson",
+    "email": "pipeline-beispiel@example.org",
+    "aliases": ["P. Beispiel"],
+    "knows": [{"name": "Pipeline Kontakt", "since": "2020-05-01"}],
+    "accounts": [
+        {"platform": "linkedin", "handle": "pbeispiel",
+         "uri": "linkedin.com/in/pbeispiel",
+         "follows": ["twitter.com/pkontakt"]},
+    ],
     "favorite_food": "Ramen",  # unbekanntes Feld → muss ins Gate
 }
 
 
-def _find_person(conn, label="Jonas Beispiel"):
+def _find_person(conn, label="Pipeline Beispielperson"):
     hits = semantic_search(conn, label, type_id="Person", limit=3)
     return next(h for h in hits if h["label"] == label)
 
@@ -41,19 +46,26 @@ def test_pipeline_worked_example(conn):
     for s in view["statements"]:
         by_pred.setdefault(s["predicate_id"], []).append(s)
 
-    # Worked Example §9: works_at + Qualifier, Provenance überall
-    works = by_pred["works_at"][0]
-    assert works["object_label"] == "BLAID Beispiel GmbH"
-    assert {q["predicate_id"] for q in works["qualifiers"]} == {"role", "hours"}
-    assert works["references"][0]["activity"] == "apify:linkedin"
-    assert by_pred["romantic_partner_of"][0]["object_label"] == "Tanja Beispiel"
-    assert by_pred["owns_account"][0]["object_type"] == "Account"
+    # Name, E-Mail, Alias auf der Person (Nameable + Identity-Key)
+    assert by_pred["email"][0]["value_text"] == "pipeline-beispiel@example.org"
+    assert by_pred["alias"][0]["value_text"] == "P. Beispiel"
 
-    # Mention ist ein Occurrent, das auf die Person zeigt (§1.1, §9)
-    mention = next(
-        s for s in view["incoming"] if s["predicate_id"] == "mentions"
-    )
-    assert mention is not None
+    # knows-Kante mit temporalem Qualifier, Provenance überall (§3/§9)
+    knows = by_pred["knows"][0]
+    assert knows["object_label"] == "Pipeline Kontakt"
+    assert {q["predicate_id"] for q in knows["qualifiers"]} == {"since"}
+    assert knows["references"][0]["activity"] == "apify:linkedin"
+
+    # owns_account → SocialMediaAccount; darauf handle/platform/follows
+    account_stmt = by_pred["owns_account"][0]
+    assert account_stmt["object_type"] == "SocialMediaAccount"
+    acc_view = entity_view(conn, str(account_stmt["object_id"]))
+    acc_preds = {s["predicate_id"] for s in acc_view["statements"]}
+    assert {"handle", "platform", "follows"} <= acc_preds
+
+    # follows zeigt Account → Account (§9)
+    follows = next(s for s in acc_view["statements"] if s["predicate_id"] == "follows")
+    assert follows["object_type"] == "SocialMediaAccount"
 
     # favorite_food wurde NICHT geschrieben, sondern vorgeschlagen (§7.1)
     assert "favorite_food" not in by_pred
@@ -71,7 +83,7 @@ def test_pipeline_dedups_across_sources(conn):
     # Zweite Quelle, gleiche E-Mail → kein Duplikat
     variant = {
         "kind": "social_profile",
-        "name": "J. Beispiel",
+        "name": "P. Beispiel (andere Quelle)",
         "email": PROFILE["email"],
     }
     doc2 = ingest_document(

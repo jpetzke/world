@@ -25,12 +25,14 @@ def test_deterministic_match_via_identifying_key(conn, source_id):
 
 
 def test_non_identifying_predicate_never_matches(conn, source_id):
-    account = str(create_entity(conn, type_id="Account", label="@resolvetest")["id"])
+    account = str(create_entity(
+        conn, type_id="SocialMediaAccount", label="@resolvetest")["id"])
     commit_statement(
         conn, subject_id=account, predicate_id="platform",
         value={"type": "string", "text": "resolvenet"}, source_ids=[source_id],
     )
-    res = resolve(conn, type_id="Account", identifiers={"platform": "resolvenet"})
+    res = resolve(conn, type_id="SocialMediaAccount",
+                  identifiers={"platform": "resolvenet"})
     assert res["match"] is None
 
 
@@ -45,10 +47,10 @@ def test_vector_similarity_candidates(conn):
 
 def test_get_or_create_auto_matches_identical_label(conn, source_id):
     first, created_first = get_or_create_entity(
-        conn, type_id="Organization", label="Autodedup Institut", source_ids=[source_id]
+        conn, type_id="SocialMediaAccount", label="@autodedup", source_ids=[source_id]
     )
     second, created_second = get_or_create_entity(
-        conn, type_id="Organization", label="Autodedup Institut", source_ids=[source_id]
+        conn, type_id="SocialMediaAccount", label="@autodedup", source_ids=[source_id]
     )
     assert created_first and not created_second
     assert first == second
@@ -57,10 +59,11 @@ def test_get_or_create_auto_matches_identical_label(conn, source_id):
 def test_merge_preserves_statements_and_provenance(conn, source_id):
     a = str(create_entity(conn, type_id="Person", label="Merge Person A")["id"])
     b = str(create_entity(conn, type_id="Person", label="Merge Person B")["id"])
-    org = str(create_entity(conn, type_id="Organization", label="Merge Org")["id"])
+    account = str(create_entity(
+        conn, type_id="SocialMediaAccount", label="@mergeacc")["id"])
     commit_statement(
-        conn, subject_id=a, predicate_id="works_at",
-        value={"type": "entity", "object_id": org}, source_ids=[source_id],
+        conn, subject_id=a, predicate_id="owns_account",
+        value={"type": "entity", "object_id": account}, source_ids=[source_id],
     )
     commit_statement(
         conn, subject_id=b, predicate_id="email",
@@ -76,16 +79,17 @@ def test_merge_preserves_statements_and_provenance(conn, source_id):
 
     view = entity_view(conn, a)
     predicates = {s["predicate_id"] for s in view["statements"]}
-    assert {"works_at", "email"} <= predicates  # nichts verloren
+    assert {"owns_account", "email"} <= predicates  # nichts verloren
     email = next(s for s in view["statements"] if s["predicate_id"] == "email")
     assert email["references"], "Provenance beider Quellen bleibt"
 
 
 def test_merge_rejects_type_conflict(conn):
     person = str(create_entity(conn, type_id="Person", label="Typ Konflikt P")["id"])
-    org = str(create_entity(conn, type_id="Organization", label="Typ Konflikt O")["id"])
+    account = str(create_entity(
+        conn, type_id="SocialMediaAccount", label="@typkonflikt")["id"])
     with pytest.raises(ValidationError, match="Typ-Konflikt"):
-        merge_entity(conn, person, org)
+        merge_entity(conn, person, account)
 
 
 def test_statements_on_merged_entity_go_to_canonical(conn, source_id):

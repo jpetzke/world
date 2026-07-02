@@ -48,9 +48,8 @@ Harte Regeln:
 - NUR predicate_id und type_id aus dem erlaubten Vokabular verwenden. Nie erfinden.
 - Passt ein Fakt auf kein Prädikat: NICHT schreiben, sondern unter proposed_predicates
   vorschlagen (mit domain/range/cardinality).
-- Identifiers (email, wikidata_qid, account_uri) immer mitgeben, wenn im Dokument vorhanden.
-- Confidence ehrlich schätzen; 1.0 nur bei direkt belegten Fakten.
-- Ereignisse (Erwähnungen, Vorfälle) sind Occurrents (z. B. Mention), keine Continuants."""
+- Identifiers (email, account_uri) immer mitgeben, wenn im Dokument vorhanden.
+- Confidence ehrlich schätzen; 1.0 nur bei direkt belegten Fakten."""
 
 
 class LLMExtractor:

@@ -6,38 +6,37 @@ from weltmodell import registry
 from weltmodell.errors import RegistryError
 
 
-def test_seed_upper_ontology(conn):
+def test_seed_types(conn):
+    # Minimalmodell: zwei flache Continuant-Typen, keine abstrakten Wurzeln
     person = registry.get_type(conn, "Person")
     assert person["kind"] == "continuant"
-    assert registry.type_ancestors(conn, "Person") == [
-        "Person", "Agent", "Continuant",
-    ]
-    mention = registry.get_type(conn, "Mention")
-    assert mention["kind"] == "occurrent"
-    assert registry.is_subtype(conn, "War", "Occurrent")
+    assert registry.type_ancestors(conn, "Person") == ["Person"]
+    account = registry.get_type(conn, "SocialMediaAccount")
+    assert account["kind"] == "continuant"
+    assert registry.type_ancestors(conn, "SocialMediaAccount") == ["SocialMediaAccount"]
 
 
-def test_seed_interfaces_inherited(conn):
-    # Country erbt nichts, deklariert Nameable+Locatable; Event-Subtypen erben Temporal
-    assert registry.type_interfaces(conn, "Country") == {"Nameable", "Locatable"}
-    assert "Temporal" in registry.type_interfaces(conn, "War")
+def test_seed_interfaces(conn):
+    assert registry.type_interfaces(conn, "Person") == {"Nameable", "Embeddable"}
+    assert registry.type_interfaces(conn, "SocialMediaAccount") == {"Nameable"}
 
 
 def test_seed_inverse_predicates(conn):
-    assert registry.get_predicate(conn, "works_at")["inverse_id"] == "employs"
-    assert registry.get_predicate(conn, "employs")["inverse_id"] == "works_at"
     assert registry.get_predicate(conn, "knows")["inverse_id"] == "knows"
+    assert registry.get_predicate(conn, "owns_account")["inverse_id"] == "account_of"
+    assert registry.get_predicate(conn, "account_of")["inverse_id"] == "owns_account"
+    assert registry.get_predicate(conn, "follows")["inverse_id"] is None
 
 
 def test_new_type_via_gate(conn):
     prop = registry.propose_type(
-        conn, type_id="Earthquake", parent_id="NaturalDisaster", kind="occurrent",
-        label="Earthquake", interfaces=["Locatable", "Temporal"],
+        conn, type_id="Influencer", parent_id="Person", kind="continuant",
+        label="Influencer", interfaces=["Nameable", "Embeddable"],
         rationale="Test", proposed_by="pytest",
     )
     registry.approve_type(conn, str(prop["id"]))
-    assert registry.get_type(conn, "Earthquake")["parent_id"] == "NaturalDisaster"
-    assert "Locatable" in registry.type_interfaces(conn, "Earthquake")
+    assert registry.get_type(conn, "Influencer")["parent_id"] == "Person"
+    assert "Nameable" in registry.type_interfaces(conn, "Influencer")
 
 
 def test_gate_rejects_continuant_occurrent_mix(conn):
@@ -86,6 +85,6 @@ def test_gate_approves_predicate_and_sets_inverse(conn):
 def test_gate_rejects_duplicate_type_proposal(conn):
     with pytest.raises(RegistryError, match="existiert bereits"):
         registry.propose_type(
-            conn, type_id="Person", parent_id="Agent", kind="continuant",
+            conn, type_id="Person", parent_id="Person", kind="continuant",
             label="Person", proposed_by="pytest",
         )

@@ -19,23 +19,23 @@ def test_entity_statement_roundtrip(client):
     person = client.post("/api/entities", json={
         "type_id": "Person", "label": "API Person",
     }).json()
-    org = client.post("/api/entities", json={
-        "type_id": "Organization", "label": "API Org",
+    account = client.post("/api/entities", json={
+        "type_id": "SocialMediaAccount", "label": "@apiaccount",
     }).json()
 
     r = client.post("/api/statements", json={
-        "subject_id": person["id"], "predicate_id": "works_at",
-        "value": {"type": "entity", "object_id": org["id"]},
+        "subject_id": person["id"], "predicate_id": "owns_account",
+        "value": {"type": "entity", "object_id": account["id"]},
         "source_ids": [source],
-        "qualifiers": [{"predicate_id": "role",
-                        "value": {"type": "string", "text": "CTO"}}],
+        "qualifiers": [{"predicate_id": "since",
+                        "value": {"type": "datetime", "datetime": "2024-01-01"}}],
     })
     assert r.status_code == 201, r.text
 
     view = client.get(f"/api/entities/{person['id']}").json()
-    works = next(s for s in view["statements"] if s["predicate_id"] == "works_at")
-    assert works["object_label"] == "API Org"
-    assert works["qualifiers"][0]["value_text"] == "CTO"
+    owns = next(s for s in view["statements"] if s["predicate_id"] == "owns_account")
+    assert owns["object_label"] == "@apiaccount"
+    assert {q["predicate_id"] for q in owns["qualifiers"]} == {"since"}
 
 
 def test_api_rejects_gate_violations(client):
@@ -88,7 +88,8 @@ def test_api_ingest_search_traverse(client):
         "raw": {
             "kind": "social_profile", "name": "API Ingest Person",
             "email": "api-ingest@example.org",
-            "employer": {"name": "API Ingest Org", "role": "Dev"},
+            "accounts": [{"platform": "linkedin", "handle": "apiingest",
+                          "uri": "linkedin.com/in/apiingest"}],
         },
     })
     assert r.status_code == 201
@@ -103,7 +104,7 @@ def test_api_ingest_search_traverse(client):
     paths = client.post("/api/query/traverse", json={
         "start_id": person_id, "max_depth": 2,
     }).json()
-    assert any(p["label"] == "API Ingest Org" for p in paths)
+    assert any(p["label"] == "@apiingest" for p in paths)
 
 
 def test_api_stats_entities_sources(client):
@@ -133,5 +134,5 @@ def test_api_graph_snapshot(client):
         assert edge["subject_id"] in node_ids
         assert edge["object_id"] in node_ids
         assert edge["rank"] != "deprecated"
-    # works_at-Kante aus dem Ingest-Test muss sichtbar sein
-    assert any(e["predicate_id"] == "works_at" for e in graph["edges"])
+    # owns_account-Kante aus dem Ingest-Test muss sichtbar sein
+    assert any(e["predicate_id"] == "owns_account" for e in graph["edges"])

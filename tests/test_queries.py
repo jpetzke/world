@@ -1,5 +1,5 @@
-"""Cross-Domain-Beweis (Spec §10) und Suche: Social + Finance + Geo sind
-Regionen desselben Graphen — ein Multi-Hop-Traverse über EINE Struktur."""
+"""Multi-Hop-Traverse und Suche: der Social-Graph ist EINE Struktur —
+Person → Account → Account → Person über eine einzige Kanten-Tabelle."""
 
 from weltmodell.entities import create_entity
 from weltmodell.queries import semantic_search, traverse
@@ -18,34 +18,30 @@ def _link(conn, subject, predicate, obj, source_id, **kwargs):
     )
 
 
-def test_cross_domain_multi_hop(conn, source_id):
-    # Person → invests_in → Company → affected_by → War → located_in → Country
-    jonas = _entity(conn, "Person", "Querdomain Jonas")
-    tsmc = _entity(conn, "Company", "TSMC Beispiel")
-    konflikt = _entity(conn, "War", "Taiwan-Konflikt Beispiel")
-    taiwan = _entity(conn, "Country", "Taiwan Beispiel")
-    gegner = _entity(conn, "Country", "Gegnerland Beispiel")
+def test_social_multi_hop(conn, source_id):
+    # Person → owns_account → Account → follows → Account → account_of → Person
+    jonas = _entity(conn, "Person", "Traverse Jonas")
+    acc_j = _entity(conn, "SocialMediaAccount", "@traverse_jonas")
+    acc_t = _entity(conn, "SocialMediaAccount", "@traverse_tanja")
+    tanja = _entity(conn, "Person", "Traverse Tanja")
 
-    _link(conn, jonas, "invests_in", tsmc, source_id)
-    _link(conn, tsmc, "affected_by", konflikt, source_id, confidence=0.8)
-    _link(conn, konflikt, "located_in", taiwan, source_id)
-    _link(conn, taiwan, "at_war_with", gegner, source_id,
-          confidence=0.9, valid_from="2026-01-01")
+    _link(conn, jonas, "owns_account", acc_j, source_id)
+    _link(conn, acc_j, "follows", acc_t, source_id, confidence=0.8)
+    _link(conn, acc_t, "account_of", tanja, source_id)
 
-    paths = traverse(conn, jonas, max_depth=4)
+    paths = traverse(conn, jonas, max_depth=3)
     by_label = {p["label"]: p for p in paths}
 
-    assert by_label["TSMC Beispiel"]["depth"] == 1
-    assert by_label["Taiwan-Konflikt Beispiel"]["depth"] == 2
-    assert by_label["Taiwan Beispiel"]["depth"] == 3
-    assert by_label["Gegnerland Beispiel"]["depth"] == 4
-    assert by_label["Gegnerland Beispiel"]["via"] == [
-        "invests_in", "affected_by", "located_in", "at_war_with",
+    assert by_label["@traverse_jonas"]["depth"] == 1
+    assert by_label["@traverse_tanja"]["depth"] == 2
+    assert by_label["Traverse Tanja"]["depth"] == 3
+    assert by_label["Traverse Tanja"]["via"] == [
+        "owns_account", "follows", "account_of",
     ]
 
     # Prädikat-Filter beschneidet den Walk
-    only_invest = traverse(conn, jonas, max_depth=4, predicates=["invests_in"])
-    assert [p["label"] for p in only_invest] == ["TSMC Beispiel"]
+    only_owns = traverse(conn, jonas, max_depth=3, predicates=["owns_account"])
+    assert [p["label"] for p in only_owns] == ["@traverse_jonas"]
 
 
 def test_traverse_skips_deprecated_edges(conn, source_id):
