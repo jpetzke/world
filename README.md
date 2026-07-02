@@ -14,13 +14,21 @@ podman run -d --name weltmodell-db \
   -p 5433:5432 -v weltmodell-pgdata:/var/lib/postgresql/data \
   localhost/weltmodell-db:latest
 
-# 2. App (Migrationen laufen beim Start automatisch)
-uv sync
-uv run uvicorn weltmodell.api:app --port 8100   # → http://localhost:8100/docs
+# 2. Frontend bauen (einmalig bzw. nach UI-Änderungen)
+cd frontend && npm install && npm run build && cd ..
 
-# 3. Tests (legen weltmodell_test an)
-uv run pytest
+# 3. App (Migrationen laufen beim Start automatisch)
+uv sync
+uv run uvicorn weltmodell.api:app --port 8100
+#   → UI:  http://localhost:8100/        API-Docs: /docs
+
+# 4. Tests
+uv run pytest                    # Backend (legt weltmodell_test an)
+cd frontend && npm test          # Frontend (vitest)
 ```
+
+Frontend-Dev mit Hot-Reload: `cd frontend && npm run dev` → http://localhost:5174
+(Proxy auf die API unter :8100).
 
 Konfiguration über `.env` (gitignored) / Umgebung:
 
@@ -53,7 +61,17 @@ Embeddings: deterministischer Hashing-Embedder als austauschbarer Default
 (`weltmodell/embeddings.py`) — ableitbar und jederzeit durch ein echtes Modell ersetzbar
 (Invariante 1).
 
-## API (FastAPI, erzwungener Schreibweg)
+## Frontend (`frontend/`)
+
+React + Vite + TS, dunkles „Nachtarchiv"-Theme: Farbe kodiert die Ontologie
+(Continuants cyan/●, Occurrents amber/◆), jede Statement-Zeile trägt links eine
+Konfidenz-Kante. Views: Suche/Dashboard, Entity (inkl. Zeitreise über beide
+§4-Achsen, Deprecate/Rank/Merge), Anlegen (Live-Dedup, domain-gefilterte
+Prädikate, polymorpher Wert-Editor, Provenance-Pflicht), Graph (Cytoscape),
+Registry, Gate, Quellen + manueller Ingest. Produktion: FastAPI liefert
+`frontend/dist` auf `/` aus.
+
+## API (FastAPI, erzwungener Schreibweg, Prefix `/api`)
 
 | Endpoint | Zweck |
 |---|---|
