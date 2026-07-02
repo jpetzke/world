@@ -122,3 +122,16 @@ def test_api_stats_entities_sources(client):
     assert sources["total"] > 0
     detail = client.get(f"/api/sources/{sources['items'][0]['id']}").json()
     assert "raw" in detail["source"]
+
+
+def test_api_graph_snapshot(client):
+    graph = client.get("/api/graph").json()
+    assert graph["total_nodes"] >= len(graph["nodes"]) > 0
+    node_ids = {n["id"] for n in graph["nodes"]}
+    assert all("degree" in n and "type_id" in n for n in graph["nodes"])
+    for edge in graph["edges"]:
+        assert edge["subject_id"] in node_ids
+        assert edge["object_id"] in node_ids
+        assert edge["rank"] != "deprecated"
+    # works_at-Kante aus dem Ingest-Test muss sichtbar sein
+    assert any(e["predicate_id"] == "works_at" for e in graph["edges"])

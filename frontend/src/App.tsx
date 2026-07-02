@@ -5,6 +5,7 @@ import { CreatePage } from './pages/CreatePage'
 import { Dashboard } from './pages/Dashboard'
 import { EntityPage } from './pages/EntityPage'
 import { GatePage } from './pages/GatePage'
+import { GraphHome } from './pages/GraphHome'
 import { GraphPage } from './pages/GraphPage'
 import { RegistryPage } from './pages/RegistryPage'
 import { SourceDetailPage, SourcesPage } from './pages/SourcesPage'
@@ -21,7 +22,8 @@ export default function App() {
           <small>reifizierter Statement-Store</small>
         </div>
         <div className="nav">
-          <NavLink to="/" end>Suche</NavLink>
+          <NavLink to="/" end>Graph</NavLink>
+          <NavLink to="/browse">Suche</NavLink>
           <NavLink to="/create">Anlegen</NavLink>
           <NavLink to="/registry">Registry</NavLink>
           <NavLink to="/gate">
@@ -32,7 +34,8 @@ export default function App() {
       </nav>
       <main className="main">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<GraphHome />} />
+          <Route path="/browse" element={<Dashboard />} />
           <Route path="/create" element={<CreatePage />} />
           <Route path="/entity/:id" element={<EntityPage />} />
           <Route path="/graph/:id" element={<GraphPage />} />

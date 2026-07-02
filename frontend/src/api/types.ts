@@ -112,6 +112,19 @@ export interface TraverseNode {
   via: string[]
 }
 
+export interface GraphSnapshot {
+  nodes: { id: string; type_id: string; label: string | null; degree: number }[]
+  edges: {
+    id: string
+    subject_id: string
+    object_id: string
+    predicate_id: string
+    rank: Rank
+    confidence: number
+  }[]
+  total_nodes: number
+}
+
 export interface Stats {
   entities: number
   statements: number

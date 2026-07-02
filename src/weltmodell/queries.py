@@ -220,6 +220,38 @@ def stats(conn: psycopg.Connection) -> dict[str, Any]:
     return row
 
 
+def graph_snapshot(conn: psycopg.Connection, *, max_nodes: int = 400) -> dict[str, Any]:
+    """Gesamter Graph der aktuellen Sicht: Knoten + Entity-Kanten.
+
+    Bei mehr Entities als max_nodes werden die zuletzt angelegten geliefert
+    (total_nodes zeigt die echte Größe — kein stilles Abschneiden).
+    """
+    total = conn.execute(
+        "SELECT count(*) AS n FROM entity WHERE merged_into IS NULL"
+    ).fetchone()["n"]
+    nodes = conn.execute(
+        """SELECT id, type_id, label,
+                  (SELECT count(*) FROM statement s
+                   WHERE (s.subject_id = entity.id OR s.object_id = entity.id)
+                     AND s.system_to IS NULL AND s.rank <> 'deprecated'
+                     AND s.value_type = 'entity') AS degree
+           FROM entity WHERE merged_into IS NULL
+           ORDER BY created_at DESC LIMIT %s""",
+        (max_nodes,),
+    ).fetchall()
+    ids = [n["id"] for n in nodes]
+    edges = conn.execute(
+        """SELECT s.id, s.subject_id, s.object_id, s.predicate_id,
+                  s.rank, s.confidence
+           FROM statement s
+           WHERE s.value_type = 'entity' AND s.system_to IS NULL
+             AND s.rank <> 'deprecated'
+             AND s.subject_id = ANY(%s) AND s.object_id = ANY(%s)""",
+        (ids, ids),
+    ).fetchall()
+    return {"nodes": nodes, "edges": edges, "total_nodes": total}
+
+
 def semantic_search(
     conn: psycopg.Connection,
     query: str,

@@ -1,7 +1,7 @@
 import type {
-  Entity, EntityListItem, EntityView, PipelineReport, Proposals,
-  ResolveResult, SearchHit, SourceDetail, SourceDoc, SourceListItem,
-  Statement, Stats, TraverseNode, ValuePayload, Vocabulary,
+  Entity, EntityListItem, EntityView, GraphSnapshot, PipelineReport,
+  Proposals, ResolveResult, SearchHit, SourceDetail, SourceDoc,
+  SourceListItem, Statement, Stats, TraverseNode, ValuePayload, Vocabulary,
 } from './types'
 
 /** Gate-Rejects (422) tragen eine Problems-Liste — die zeigen wir inline. */
@@ -52,6 +52,7 @@ const qs = (params: Record<string, string | number | boolean | undefined | null>
 
 export const api = {
   stats: () => req<Stats>('/stats'),
+  graph: (maxNodes = 400) => req<GraphSnapshot>(`/graph${qs({ max_nodes: maxNodes })}`),
   vocabulary: () => req<Vocabulary>('/registry/vocabulary'),
   proposals: (status: string) => req<Proposals>(`/registry/proposals${qs({ status })}`),
   proposeType: (body: unknown) => req('/registry/proposals/types', post(body)),

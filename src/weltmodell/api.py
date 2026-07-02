@@ -300,6 +300,11 @@ def get_stats(conn=Depends(db)):
     return queries.stats(conn)
 
 
+@router.get("/graph")
+def get_graph(max_nodes: int = 400, conn=Depends(db)):
+    return queries.graph_snapshot(conn, max_nodes=min(max_nodes, 2000))
+
+
 @router.get("/entities")
 def get_entities(
     type_id: str | None = None,
@@ -350,6 +355,8 @@ if FRONTEND_DIST.exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str):
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail=f"Unbekannte API-Route /{path}")
         candidate = (FRONTEND_DIST / path).resolve()
         if (
             path

@@ -4,9 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { EntityLink, ErrorBox, KindBadge, PageHead } from '../components/bits'
+import { GRAPH_OPTIONS, GRAPH_STYLE, NODE_COLORS, kindColor, kindShape } from '../graph/style'
 import { useVocabulary } from '../hooks/useVocabulary'
-
-const NODE_COLORS = { continuant: '#5fb0d4', occurrent: '#e08e39' }
 
 export function GraphPage() {
   const { id = '' } = useParams()
@@ -45,29 +44,23 @@ export function GraphPage() {
   useEffect(() => {
     if (!containerRef.current || !start.data || !walk.data || !helpers) return
 
-    const kindColor = (typeId: string) =>
-      NODE_COLORS[helpers.kindOf(typeId) ?? 'continuant']
-    const kindShape = (typeId: string) =>
-      helpers.kindOf(typeId) === 'occurrent' ? 'diamond' : 'ellipse'
-
     const nodes = new Map<string, cytoscape.ElementDefinition>()
     const startEntity = start.data.entity
     nodes.set(startEntity.id, {
-      data: { id: startEntity.id, label: startEntity.label ?? startEntity.id.slice(0, 8) },
+      data: { id: startEntity.id, label: startEntity.label ?? startEntity.id.slice(0, 8), size: 44 },
       style: {
-        'background-color': kindColor(startEntity.type_id),
-        shape: kindShape(startEntity.type_id),
-        width: 44, height: 44,
+        'background-color': kindColor(helpers.kindOf(startEntity.type_id)),
+        shape: kindShape(helpers.kindOf(startEntity.type_id)),
         'border-width': 3, 'border-color': '#e9e4d6',
       },
     })
     const edges: cytoscape.ElementDefinition[] = []
     for (const node of walk.data) {
       nodes.set(node.entity_id, {
-        data: { id: node.entity_id, label: node.label ?? node.entity_id.slice(0, 8) },
+        data: { id: node.entity_id, label: node.label ?? node.entity_id.slice(0, 8), size: 28 },
         style: {
-          'background-color': kindColor(node.type_id),
-          shape: kindShape(node.type_id),
+          'background-color': kindColor(helpers.kindOf(node.type_id)),
+          shape: kindShape(helpers.kindOf(node.type_id)),
         },
       })
       const from = node.path[node.path.length - 2]
@@ -83,41 +76,9 @@ export function GraphPage() {
     const cy = cytoscape({
       container: containerRef.current,
       elements: [...nodes.values(), ...edges],
-      style: [
-        {
-          selector: 'node',
-          style: {
-            label: 'data(label)',
-            color: '#9aa1b0',
-            'font-size': 10,
-            'font-family': 'IBM Plex Mono, monospace',
-            'text-valign': 'bottom',
-            'text-margin-y': 6,
-            width: 28, height: 28,
-          },
-        },
-        {
-          selector: 'edge',
-          style: {
-            label: 'data(label)',
-            color: '#667082',
-            'font-size': 8,
-            'font-family': 'IBM Plex Mono, monospace',
-            'curve-style': 'bezier',
-            'target-arrow-shape': 'triangle',
-            'arrow-scale': 0.8,
-            'line-color': '#33405a',
-            'target-arrow-color': '#33405a',
-            width: 1.5,
-            'text-rotation': 'autorotate',
-          },
-        },
-        { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#e9e4d6' } },
-      ],
+      style: GRAPH_STYLE,
       layout: { name: 'cose', animate: false, padding: 40 },
-      wheelSensitivity: 0.3,
-      maxZoom: 1.5,
-      minZoom: 0.15,
+      ...GRAPH_OPTIONS,
     })
     cy.on('tap', 'node', (event) => setSelected(event.target.id()))
     cy.on('dbltap', 'node', (event) => navigate(`/entity/${event.target.id()}`))
