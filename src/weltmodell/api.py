@@ -145,6 +145,7 @@ class IngestPayload(BaseModel):
     url: str | None = None
     retrieved_at: str | None = None
     run_pipeline: bool = True
+    extractor: str = "rule-based"  # 'rule-based' | 'llm' (OpenRouter)
 
 
 # --- Endpoints ---------------------------------------------------------------
@@ -290,6 +291,13 @@ def post_ingest(payload: IngestPayload, conn=Depends(db)):
     )
     report = None
     if payload.run_pipeline:
+        extractor = None
+        if payload.extractor == "llm":
+            from .llm import LLMExtractor
+
+            extractor = LLMExtractor()
+        elif payload.extractor != "rule-based":
+            raise ValidationError(f"Unbekannter Extraktor '{payload.extractor}'")
         report = pipeline.run_pipeline(conn, source_id=str(doc["id"]),
-                                       agent=payload.agent)
+                                       agent=payload.agent, extractor=extractor)
     return {"source": doc, "pipeline": report}
