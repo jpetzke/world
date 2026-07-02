@@ -22,6 +22,8 @@ ARTICLE = {
 
 
 def test_llm_extraction_end_to_end(conn):
+    import httpx
+
     from weltmodell.llm import LLMExtractor
     from weltmodell.pipeline import ingest_document, run_pipeline
 
@@ -29,10 +31,15 @@ def test_llm_extraction_end_to_end(conn):
         conn, raw=ARTICLE, url="https://example.org/artikel",
         activity="scrapling:news", agent="llm-extractor",
     )
-    report = run_pipeline(
-        conn, source_id=str(doc["id"]), extractor=LLMExtractor(),
-        agent="llm-extractor",
-    )
+    try:
+        report = run_pipeline(
+            conn, source_id=str(doc["id"]), extractor=LLMExtractor(),
+            agent="llm-extractor",
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429 or exc.response.status_code >= 500:
+            pytest.skip(f"OpenRouter nicht verfügbar: {exc.response.status_code}")
+        raise
 
     # Nicht-deterministisch — aber die Invarianten gelten immer:
     # alles, was durchkam, hat Provenance und registriertes Vokabular.
