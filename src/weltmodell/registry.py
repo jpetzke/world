@@ -79,6 +79,9 @@ def vocabulary(conn: psycopg.Connection) -> dict[str, Any]:
         "types": list_types(conn),
         "interfaces": list_interfaces(conn),
         "predicates": list_predicates(conn),
+        "implementations": conn.execute(
+            "SELECT type_id, interface_id FROM type_implements ORDER BY type_id"
+        ).fetchall(),
     }
 
 

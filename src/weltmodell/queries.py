@@ -51,9 +51,11 @@ def entity_view(
     """
     statement_sql = f"""
         SELECT s.*, e.label AS object_label, e.type_id AS object_type,
+               subj.label AS subject_label, subj.type_id AS subject_type,
                ST_AsGeoJSON(s.value_geo)::jsonb AS value_geojson
         FROM statement s
         LEFT JOIN entity e ON e.id = s.object_id
+        LEFT JOIN entity subj ON subj.id = s.subject_id
         WHERE s.{{direction}} = %(id)s {time_filter}
         ORDER BY CASE s.rank WHEN 'preferred' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
                  s.confidence DESC, s.system_from
