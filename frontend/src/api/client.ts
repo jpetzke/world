@@ -1,5 +1,6 @@
 import type {
-  Entity, EntityListItem, EntityView, GraphSnapshot, PipelineReport,
+  Entity, EntityListItem, EntityView, FollowerListCommitResult,
+  FollowerListPreview, FollowerRowIn, GraphSnapshot, PipelineReport,
   Proposals, ResolveResult, SearchHit, SourceDetail, SourceDoc,
   SourceFileMeta, SourceListItem, Statement, Stats, TimelineItem,
   TraverseNode, ValuePayload, Vocabulary,
@@ -110,6 +111,18 @@ export const api = {
 
   traverse: (body: { start_id: string; max_depth: number; predicates?: string[] | null }) =>
     req<TraverseNode[]>('/query/traverse', post(body)),
+
+  followerListPreview: (body: {
+    owner_entity_id: string
+    direction: 'followers' | 'following'
+    rows: FollowerRowIn[]
+  }) => req<FollowerListPreview>('/ingest/follower-list/preview', post(body)),
+  followerListCommit: (body: {
+    owner_entity_id: string
+    direction: 'followers' | 'following'
+    rows: FollowerRowIn[]
+    observed_at?: string | null
+  }) => req<FollowerListCommitResult>('/ingest/follower-list/commit', post(body)),
 
   ingest: (body: {
     activity: string

@@ -7,6 +7,7 @@ import { EntityPage } from './pages/EntityPage'
 import { GatePage } from './pages/GatePage'
 import { GraphHome } from './pages/GraphHome'
 import { GraphPage } from './pages/GraphPage'
+import { ImportPage } from './pages/ImportPage'
 import { RegistryPage } from './pages/RegistryPage'
 import { SourceDetailPage, SourcesPage } from './pages/SourcesPage'
 
@@ -25,6 +26,7 @@ export default function App() {
           <NavLink to="/" end>Graph</NavLink>
           <NavLink to="/browse">Suche</NavLink>
           <NavLink to="/create">Anlegen</NavLink>
+          <NavLink to="/import">Import</NavLink>
           <NavLink to="/registry">Registry</NavLink>
           <NavLink to="/gate">
             Gate {pending > 0 && <span className="badge">{pending}</span>}
@@ -37,6 +39,7 @@ export default function App() {
           <Route path="/" element={<GraphHome />} />
           <Route path="/browse" element={<Dashboard />} />
           <Route path="/create" element={<CreatePage />} />
+          <Route path="/import" element={<ImportPage />} />
           <Route path="/entity/:id" element={<EntityPage />} />
           <Route path="/graph/:id" element={<GraphPage />} />
           <Route path="/registry" element={<RegistryPage />} />

@@ -253,3 +253,39 @@ export type ValuePayload =
   | { type: 'datetime'; datetime: string }
   | { type: 'geo'; lat: number; lon: number }
   | { type: 'json'; json: unknown }
+
+// --- Follower-Listen-Import --------------------------------------------------
+
+export interface FollowerRowIn {
+  username: string
+  display_name: string | null
+}
+
+export type FollowerRowStatus = 'new_account' | 'new_follow' | 'confirmed' | 'invalid'
+
+export interface FollowerPreviewRow {
+  username: string
+  display_name: string | null
+  status: FollowerRowStatus
+  reason?: string
+  entity_id?: string
+}
+
+export interface FollowerListPreview {
+  rows: FollowerPreviewRow[]
+  summary: {
+    total: number
+    new_account: number
+    new_follow: number
+    confirmed: number
+    invalid: number
+  }
+}
+
+export interface FollowerListCommitResult {
+  source_id: string
+  accounts_created: number
+  follows_created: number
+  follows_confirmed: number
+  skipped_invalid: number
+}

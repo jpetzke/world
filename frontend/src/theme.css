@@ -666,3 +666,9 @@ button.primary.big { font-size: 14px; padding: 10px 20px; }
 .occurrent-fields { border-left: 2px solid var(--occurrent-dim); }
 .occurrent-group + .occurrent-group { margin-top: 12px; }
 .occurrent-fields textarea { min-height: 0; }
+
+/* --- Follower-Listen-Import: Status-Farben ---------------------------------- */
+.status-new_account { color: var(--affirm); }
+.status-new_follow { color: var(--continuant); }
+.status-confirmed { color: var(--text1); }
+.status-invalid { color: var(--danger); }
