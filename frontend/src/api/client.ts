@@ -1,9 +1,9 @@
 import type {
   Entity, EntityListItem, EntityView, FollowerListCommitResult,
-  FollowerListPreview, FollowerRowIn, GraphSnapshot, PipelineReport,
-  Proposals, ResolveResult, SearchHit, SourceDetail, SourceDoc,
-  SourceFileMeta, SourceListItem, Statement, Stats, TimelineItem,
-  TraverseNode, ValuePayload, Vocabulary,
+  FollowerListPreview, FollowerRowIn, GraphSnapshot, Neighborhood,
+  PipelineReport, Proposals, ResolveResult, SearchHit, SourceDetail,
+  SourceDoc, SourceFileMeta, SourceListItem, Statement, Stats, TimelineItem,
+  ValuePayload, Vocabulary,
 } from './types'
 
 /** Gate-Rejects (422) tragen eine Problems-Liste — die zeigen wir inline. */
@@ -109,8 +109,10 @@ export const api = {
   setRank: (id: string, rank: string) =>
     req<Statement>(`/statements/${id}/rank`, post({ rank })),
 
-  traverse: (body: { start_id: string; max_depth: number; predicates?: string[] | null }) =>
-    req<TraverseNode[]>('/query/traverse', post(body)),
+  traverse: (body: {
+    start_id: string; max_depth: number
+    predicates?: string[] | null; max_nodes?: number
+  }) => req<Neighborhood>('/query/traverse', post(body)),
 
   followerListPreview: (body: {
     owner_entity_id: string

@@ -1,21 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
-import cytoscape from 'cytoscape'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Kind } from '../api/types'
 import { EntityLink, ErrorBox, KindBadge } from '../components/bits'
 import { useOptionNav } from '../components/useOptionNav'
-import { GRAPH_OPTIONS, GRAPH_STYLE, NODE_COLORS, kindColor, kindShape } from '../graph/style'
+import { GraphCanvas, type GraphCanvasHandle } from '../graph/GraphCanvas'
+import { NODE_COLORS } from '../graph/style'
 import { useVocabulary } from '../hooks/useVocabulary'
 
-/** Home: das ganze Weltmodell als Graph. Suche springt zum Knoten,
-    Filter dimmen statt zu verstecken — die Welt bleibt sichtbar. */
+/** Home: das ganze Weltmodell als Graph. Suche springt zum Knoten und hebt
+    seine Nachbarschaft hervor; Tippen leuchtet Treffer live; Filter dimmen
+    statt zu verstecken — die Welt bleibt sichtbar. */
 export function GraphHome() {
   const navigate = useNavigate()
   const { helpers } = useVocabulary()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const cyRef = useRef<cytoscape.Core | null>(null)
+  const canvasRef = useRef<GraphCanvasHandle>(null)
 
   const [selected, setSelected] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -23,7 +23,7 @@ export function GraphHome() {
     continuant: true,
     occurrent: true,
   })
-  const [predicateFilter, setPredicateFilter] = useState<string | ''>('')
+  const [predicateFilter, setPredicateFilter] = useState<string>('')
 
   const graph = useQuery({ queryKey: ['graph'], queryFn: () => api.graph(600) })
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
@@ -37,102 +37,26 @@ export function GraphHome() {
     () => [...new Set((graph.data?.edges ?? []).map((e) => e.predicate_id))].sort(),
     [graph.data],
   )
+  const hiddenKinds = useMemo(
+    () => (Object.entries(kindFilter) as [Kind, boolean][])
+      .filter(([, on]) => !on).map(([k]) => k),
+    [kindFilter],
+  )
+  const kindOf = useCallback((t: string) => helpers?.kindOf(t), [helpers])
 
-  // Graph aufbauen
-  useEffect(() => {
-    if (!containerRef.current || !graph.data || !helpers) return
-    const { nodes, edges } = graph.data
-
-    const elements: cytoscape.ElementDefinition[] = [
-      ...nodes.map((n) => ({
-        data: {
-          id: n.id,
-          label: n.label ?? n.id.slice(0, 8),
-          // Grad → Größe: wichtige Knoten fallen auf, sqrt dämpft Ausreißer
-          size: 20 + Math.round(Math.sqrt(n.degree) * 9),
-          kind: helpers.kindOf(n.type_id) ?? 'continuant',
-        },
-        style: {
-          'background-color': kindColor(helpers.kindOf(n.type_id)),
-          shape: kindShape(helpers.kindOf(n.type_id)),
-        },
-      })),
-      ...edges.map((e) => ({
-        data: {
-          id: e.id,
-          source: e.subject_id,
-          target: e.object_id,
-          label: e.predicate_id,
-        },
-        style: { opacity: 0.35 + e.confidence * 0.65 },
-      })),
-    ]
-
-    const cy = cytoscape({
-      container: containerRef.current,
-      elements,
-      style: GRAPH_STYLE,
-      layout: {
-        name: 'cose',
-        animate: false,
-        padding: 30,
-        nodeRepulsion: () => 12000,
-        idealEdgeLength: () => 90,
-      },
-      ...GRAPH_OPTIONS,
-    })
-    cy.on('tap', 'node', (event) => setSelected(event.target.id()))
-    cy.on('tap', (event) => {
-      if (event.target === cy) setSelected(null)
-    })
-    cy.on('dbltap', 'node', (event) => navigate(`/entity/${event.target.id()}`))
-    cyRef.current = cy
-    return () => {
-      cy.destroy()
-      cyRef.current = null
-    }
-  }, [graph.data, helpers, navigate])
-
-  // Filter: dimmen statt verstecken
-  useEffect(() => {
-    const cy = cyRef.current
-    if (!cy) return
-    cy.batch(() => {
-      cy.elements().removeClass('dimmed')
-      const hiddenKinds = (Object.entries(kindFilter) as [Kind, boolean][])
-        .filter(([, on]) => !on)
-        .map(([kind]) => kind)
-      for (const kind of hiddenKinds) cy.nodes(`[kind = "${kind}"]`).addClass('dimmed')
-      if (predicateFilter) {
-        cy.edges(`[label != "${predicateFilter}"]`).addClass('dimmed')
-        const lit = cy.edges(`[label = "${predicateFilter}"]`)
-        cy.nodes().not(lit.connectedNodes()).addClass('dimmed')
-      }
-    })
-  }, [kindFilter, predicateFilter, graph.data])
-
-  // Suche: Treffer im Graph anspringen
-  const spotlight = (id: string) => {
-    const cy = cyRef.current
-    if (!cy) return
-    const node = cy.$id(id)
-    if (node.empty()) {
-      navigate(`/entity/${id}`) // außerhalb des Snapshots → Entity-Seite
-      return
-    }
-    cy.nodes().removeClass('spotlight')
-    node.addClass('spotlight')
-    cy.animate({ center: { eles: node }, zoom: 1.1, duration: 350 })
-    setSelected(id)
-  }
-
+  // Suche im Server (findet auch Knoten außerhalb des Ausschnitts).
   const search = useQuery({
     queryKey: ['search', query],
     queryFn: () => api.search(query),
     enabled: query.trim().length >= 2,
   })
-
   const results = query.trim().length >= 2 ? (search.data ?? []).slice(0, 8) : []
+
+  const spotlight = (id: string) => {
+    // Erst im Ausschnitt anspringen; sonst zur Entity-Seite (außerhalb Snapshot).
+    if (!canvasRef.current?.focusOn(id)) navigate(`/entity/${id}`)
+  }
+
   const { active, listRef, onKeyDown } = useOptionNav(
     results,
     (hit) => { spotlight(hit.id); setQuery('') },
@@ -189,6 +113,10 @@ export function GraphHome() {
           {predicatesInGraph.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
 
+        <button type="button" className="ghost" onClick={() => canvasRef.current?.fit()}>
+          Einpassen
+        </button>
+
         <span className="mono small muted" style={{ marginLeft: 'auto' }}>
           {graph.data?.nodes.length ?? 0}/{graph.data?.total_nodes ?? 0} Knoten ·{' '}
           {graph.data?.edges.length ?? 0} Kanten · {stats.data?.statements ?? '–'} Statements
@@ -196,12 +124,27 @@ export function GraphHome() {
       </div>
 
       <div className="graph-wrap" style={{ height: 'calc(100vh - 130px)' }}>
-        <div ref={containerRef} className="graph-canvas" />
+        {graph.data && helpers ? (
+          <GraphCanvas
+            ref={canvasRef}
+            nodes={graph.data.nodes}
+            edges={graph.data.edges}
+            kindOf={kindOf}
+            hiddenKinds={hiddenKinds}
+            dimPredicate={predicateFilter || undefined}
+            matchText={query.trim().length >= 2 ? query : undefined}
+            onSelect={setSelected}
+            onOpen={(id) => navigate(`/entity/${id}`)}
+          />
+        ) : (
+          <div className="graph-canvas" />
+        )}
         <aside className="graph-side">
           {!selected && (
             <div className="stack">
               <p className="muted small" style={{ margin: 0 }}>
-                Das ganze Weltmodell. Klick: Details · Doppelklick: Entity-Seite.
+                Das ganze Weltmodell. Hover: Nachbarschaft · Klick: Details ·
+                Doppelklick: Entity-Seite.
               </p>
               {graph.data?.nodes.length === 0 && (
                 <p className="small">

@@ -127,26 +127,33 @@ export interface SearchHit {
   similarity: number | null
 }
 
-export interface TraverseNode {
-  entity_id: string
-  label: string | null
+export interface GraphNodeDTO {
+  id: string
   type_id: string
-  depth: number
-  path: string[]
-  via: string[]
+  label: string | null
+  degree: number
+  /** Hop-Distanz vom Startknoten (nur in der Ego-Sicht gesetzt). */
+  depth?: number
+}
+
+export interface GraphEdgeDTO {
+  id: string
+  subject_id: string
+  object_id: string
+  predicate_id: string
+  rank: Rank
+  confidence: number
 }
 
 export interface GraphSnapshot {
-  nodes: { id: string; type_id: string; label: string | null; degree: number }[]
-  edges: {
-    id: string
-    subject_id: string
-    object_id: string
-    predicate_id: string
-    rank: Rank
-    confidence: number
-  }[]
+  nodes: GraphNodeDTO[]
+  edges: GraphEdgeDTO[]
   total_nodes: number
+}
+
+/** k-Hop-Nachbarschaft als induzierter Teilgraph (ungerichtet). */
+export interface Neighborhood extends GraphSnapshot {
+  start_id: string
 }
 
 export interface Stats {
