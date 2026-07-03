@@ -58,7 +58,7 @@ Zwei Wurzeltypen, nicht mehr:
 - **Continuant (Entity)** — existiert *durch* die Zeit, hat Identität: `Person`, `Organization`, `Country`, `Account`, `StockIndex`, `Concept`.
 - **Occurrent (Event)** — *passiert* in einem Zeitfenster: `Interaction`, `Mention`, `War`, `StockCrash`, `NaturalDisaster`, `Election`.
 
-Warum das load-bearing ist: Ohne diesen Split wird „Krieg" später ein hässlicher Sonderfall statt einfach ein neuer `Event`-Subtyp. **Eine Erwähnung ist ein Event, keine Entity** — sie passiert zu einem Zeitpunkt, sie persistiert nicht. Diesen Fehler baust du jetzt schon raus, bevor er teuer wird.
+Warum das load-bearing ist: Ohne diesen Split wird „Krieg" später ein hässlicher Sonderfall statt einfach ein neuer `Ereignis`-Subtyp. **Eine Erwähnung ist kein Continuant** — sie persistiert nicht mit eigener Identität. In der Praxis ist sie sogar noch weniger: ein Statement (`Post –erwähnt→ Account`), keine eigene Entity. Occurrent-Entities sind für echt ereignisförmige, n-äre Dinge reserviert (Wahl, Demonstration, Krieg) — der vollständige Entscheidungsbaum steht in §14.1. Diesen Fehler baust du jetzt schon raus, bevor er teuer wird.
 
 ---
 
@@ -202,14 +202,20 @@ Abgeleitete Fakten (Transitivität, Inverse, Klassen-Inferenz) werden als `infer
 
 Bewusst schlank — die Wahrheit liegt in den Statements, `entity` ist nur ein Identitäts-Anker.
 
+> **Maßgeblich ist `db/migrations/`**, nicht dieses Skelett. Das hier ist die illustrative
+> Essenz; die echte DDL hat zusätzlich das Review-Gate (`proposed_type`/`proposed_predicate`,
+> §7.1) und `entity.merged_into` (verlustfreies Merge, §7.2).
+
 ```sql
 -- === REGISTRY (Schema-als-Daten) ===
 CREATE TABLE entity_type (
-  id           text PRIMARY KEY,          -- 'Person', 'War', ...
-  parent_id    text REFERENCES entity_type(id),
-  kind         text NOT NULL CHECK (kind IN ('continuant','occurrent')),
-  label        text NOT NULL,
-  wikidata_qid text
+  id              text PRIMARY KEY,       -- 'Person', 'Wahl', ...
+  parent_id       text REFERENCES entity_type(id),
+  kind            text NOT NULL CHECK (kind IN ('continuant','occurrent')),
+  label           text NOT NULL,
+  abstract        boolean NOT NULL DEFAULT false,  -- abstrakte Wurzeln (Agent, Ereignis): nicht anlegbar
+  label_predicate text REFERENCES predicate(id),   -- welches Prädikat trägt den Anzeige-Bezeichner (§14.4)
+  wikidata_qid    text
 );
 
 CREATE TABLE interface (
@@ -224,16 +230,18 @@ CREATE TABLE type_implements (
 );
 
 CREATE TABLE predicate (
-  id             text PRIMARY KEY,        -- 'works_at', 'invests_in', ...
-  label          text NOT NULL,
-  domain_type    text REFERENCES entity_type(id),   -- oder Interface-Ref
-  range_kind     text NOT NULL CHECK (range_kind IN
-                   ('entity','string','number','datetime','geo','json','quantity')),
-  range_type     text REFERENCES entity_type(id),   -- falls range_kind='entity'
-  cardinality    text CHECK (cardinality IN ('1:1','1:n','n:m')),
-  inverse_id     text REFERENCES predicate(id),
-  wikidata_pid   text,
-  schema_org     text
+  id               text PRIMARY KEY,      -- 'works_at', 'invests_in', ...
+  label            text NOT NULL,
+  domain_type      text REFERENCES entity_type(id),
+  domain_interface text REFERENCES interface(id),  -- Alternative: Interface als Domain (§2.3)
+  range_kind       text NOT NULL CHECK (range_kind IN
+                     ('entity','string','number','datetime','geo','json','quantity')),
+  range_type       text REFERENCES entity_type(id),  -- falls range_kind='entity'
+  cardinality      text CHECK (cardinality IN ('1:1','1:n','n:m')),
+  inverse_id       text REFERENCES predicate(id),
+  identifying      boolean NOT NULL DEFAULT false,   -- harter Dedup-Key (§7.2)
+  wikidata_pid     text,
+  schema_org       text
 );
 
 -- === ENTITIES (nur Identitäts-Anker) ===
@@ -307,26 +315,31 @@ Optional als Ergonomie-Layer: eine **materialisierte „current view"** (JSONB-C
 
 ## 9. Worked Example: Social Vertical
 
-**Types:** `Person` (Continuant, Agent, Nameable+Embeddable), `Organization` (Continuant, Nameable), `Account` (Continuant, Nameable), `Mention` (**Occurrent**, Temporal).
+**Types:** `Person` (Continuant, ⊂ Agent, Nameable+Embeddable), `Organization` (Continuant, ⊂ Agent), `SocialMediaAccount` (Continuant), `Post` (**Continuant** — Inhalts-Artefakt, §14.1), `Wahl`/`Demonstration`/`Kontosperrung` (**Occurrents** ⊂ Ereignis).
 
-**Predicates:** `knows`, `romantic_partner_of` (inverse = sich selbst), `works_at`, `owns_account`, `subject_of` (Person ist Subjekt einer Mention).
+**Predicates:** `knows` (inverse = sich selbst), `works_at`, `owns_account`/`account_of` (Domain `Agent` — auch Firmen besitzen Accounts), `follows`, `verfasst_von`, `erwähnt`.
 
 **Rows (konzeptuell):**
 
 ```
 entity: e1=Jonas (Person), e2=Tanja (Person), e3=BLAID (Organization),
-        e4=@jpetzke (Account), e5=Mention#1 (Mention/Event)
+        e4=@jpetzke (SocialMediaAccount), e5=Post#1 (Post)
 
 statement s1: e1 --works_at--> e3
    qualifier: role="Werkstudent", hours=16
    reference: source_document(url=blaid.de, activity=manual)
    valid_from: 2024-10, confidence 1.0
 
-statement s2: e1 --romantic_partner_of--> e2   confidence 1.0
+statement s2: e1 --knows--> e2                 confidence 1.0
 statement s3: e1 --owns_account--> e4          source: apify:linkedin
-statement s4: e5 --subject_of(inverse)--> e1   (Person in Artikel erwähnt)
-   value: e5.value_text=snippet, valid_from=Artikeldatum, source: scrapling(url)
+statement s4: e5 --erwähnt--> e4               (Account in Post erwähnt)
+   dazu: e5 --text--> "snippet", e5 --veröffentlicht_am--> Artikeldatum
+   source: scrapling(url)
 ```
+
+Die Erwähnung ist ein **Statement auf einem Continuant** (Post), keine eigene
+Event-Entity — das Ereignishafte trägt `veröffentlicht_am`. Occurrent-Entities
+entstehen erst bei n-ären Ereignissen (Wahl mit Kandidaten, Gewinner, Amt).
 
 **Widerspruch-Fall (warum das Modell trägt):**
 
@@ -376,6 +389,8 @@ Diese fünf halten das System über Jahre sauber. Bruch jeder einzelnen führt z
 4. **Überschreibe nie — deprecate.** Widersprüche koexistieren via Rank + Bitemporalität.
 5. **Der Continuant/Occurrent-Split ist heilig.** Passiert etwas in einem Zeitfenster → Event. Existiert es mit Identität → Entity. Nie vermischen.
 
+Die Invarianten sagen, was nie gebrochen wird. **Wie** man das Modell richtig erweitert (neue Typen, Events, Prädikate), steht im Erweiterungs-Playbook (§14).
+
 ---
 
 ## 13. Bewusst später (kein Redesign nötig)
@@ -384,6 +399,119 @@ Diese fünf halten das System über Jahre sauber. Bruch jeder einzelnen führt z
 - **Apache AGE** — starte mit Recursive CTEs, rüste Cypher nach, wenn Traversierung schmerzt.
 - **Auto-Approve-Gate** — anfangs reviewst du Proposals selbst; später Confidence-Schwelle + Auto-Approve für Trivialfälle.
 - **Materialized current-view** — erst bauen, wenn Reads spürbar langsam werden.
+
+---
+
+## 14. Erweiterungs-Playbook — neue Typen, Events, Prädikate
+
+Destilliert aus den ersten realen Erweiterungen (Migrationen 0004–0007: Upper Ontology,
+label_predicate, Org-Accounts, Occurrents+Social-Content). Das hier ist die Antwort auf
+„wir wollen neue Datentypen oder Events hinzufügen" — so, dass es das Modell sauber
+erweitert und nie beißt.
+
+### 14.1 Der Modellierungs-Entscheidungsbaum
+
+Für jedes neue „Ding" in dieser Reihenfolge prüfen — **Occurrent ist das letzte Mittel:**
+
+1. **Ableitbar?** Ergibt es sich aus vorhandenen Statements? (Kontoerstellung =
+   `erstellt_am`-Statement; Handle-Wechsel = Supersession des `handle`-Statements.)
+   → **Nicht materialisieren.** Ableitbares wird abgeleitet angezeigt (z. B. als
+   Timeline-Meilenstein), nie gespeichert (Invariante 1).
+2. **Binäre Beziehung?** Zwei Dinge, eine Beziehung, ggf. mit Zeit? (Like, Follow,
+   works_at.) → **Statement** mit Valid-Time + Qualifiern. Keine Entity, kein Event.
+   Beziehungen werden nie zu Entities reifiziert, solange sie binär sind.
+3. **Persistiert es mit Identität?** Kann man später darauf zeigen, sammelt es selbst
+   Statements? (Post, Account, Person, Ort.) → **Continuant.** Inhalts-Artefakte
+   (Post, Kommentar) sind Continuants, auch wenn sie einen Publikationszeitpunkt
+   haben — der ist ein `veröffentlicht_am`-Statement. Kommentar = Post mit `antwort_auf`,
+   kein eigener Typ.
+4. **Passiert es?** Zeitfenster, mehrere Teilnehmer in Rollen (n-är), danach vorbei?
+   (Wahl, Demonstration, Kontosperrung, Krieg.) → **Occurrent**, Parent im
+   `Ereignis`-Ast. Erbt `beginn`/`ende`/`ort` von der Wurzel; eigene, scharf
+   typisierte Rollen-Prädikate (§14.3).
+
+Faustregel: Eine Beziehung wird erst dann zur (Occurrent-)Entity reifiziert, wenn sie
+n-är ist — wenn Qualifier an einem Statement nicht mehr reichen, weil das Ding selbst
+Subjekt weiterer Statements sein muss.
+
+### 14.2 Ereigniszeit ≠ Behauptungszeit
+
+`beginn`/`ende` eines Events sind **eigene datetime-Statements** — sie tragen Provenance
+und Confidence wie jeder andere Fakt („Quelle X behauptet, die Demo begann um 14 Uhr").
+`valid_from`/`valid_to` auf dem Statement sagen dagegen, wann die *Behauptung* gilt.
+Ereigniszeit nie in die Bitemporalitäts-Spalten quetschen.
+
+### 14.3 Prädikat-Design
+
+- **So hoch wie möglich aufhängen.** Domain auf den abstraktesten Typ oder das Interface
+  legen, für das das Prädikat sinnvoll ist: `beginn`/`ende`/`ort` auf `Ereignis`,
+  `owns_account` auf `Agent`, `name` auf Interface `Nameable`. Der Shape-Check ist
+  subtyp- und interface-fähig — Subtypen erben gratis.
+- **Scharfe, typisierte Rollen-Prädikate** (`kandidat`, `gewinner`, `betroffenes_konto`)
+  statt generischem `participant` + Rollen-Qualifier (Palantir-Link-Types-Stil). Die
+  Registry soll die Semantik tragen, nicht Konvention in Qualifier-Strings.
+- **Aber keine Prädikat-Explosion:** Verfeinerung eines Statements (`role`, `since`,
+  `hours`) ist Qualifier-Job. `works_at` + Qualifier, nie `works_at_as_werkstudent`.
+- **Pflichtfelder:** domain (Typ *oder* Interface), range_kind (+ range_type bei
+  `entity`), cardinality. Inverse deklarieren, wo es eine Gegenrichtung gibt
+  (Gegenrichtung wird automatisch eingetragen; symmetrisch = inverse auf sich selbst).
+- **Extern mappen, wo billig:** `wikidata_pid` / `schema_org` mitgeben. Das diszipliniert
+  die Benennung und hält Dedup/Interop offen.
+- Range so eng wie möglich, aber auf den abstrakten Typ, wenn mehrere Subtypen legitim
+  sind (`teilnehmer` → `Agent`, nicht `Person`).
+
+### 14.4 Typ-Design-Checkliste
+
+Jeder neue Typ deklariert:
+
+1. **`kind`** — continuant oder occurrent (§14.1). Muss dem Parent-Kind entsprechen
+   (Invariante 5, beim Approve erzwungen).
+2. **`parent_id`** — in den vorhandenen Ast hängen (`Agent` für Akteure, `Ereignis` für
+   Events). Neue abstrakte Wurzeln (`abstract=true`, nicht anlegbar) nur, wenn ein ganzer
+   Ast Gemeinsames bündeln soll. Es gibt bewusst KEINE Typen `Continuant`/`Occurrent`
+   als Zeilen — `kind` ist das Split-Etikett.
+3. **Interfaces** — aus vorhandenen komponieren (`Nameable`, `Locatable`, `Temporal`,
+   `Quantifiable`, `Embeddable`), auf dem höchsten sinnvollen Typ deklarieren (Subtypen
+   erben). Neues Interface nur, wenn ein Property-Set wirklich in mehreren Ästen
+   wiederkehrt.
+4. **`label_predicate`** — welches Prädikat trägt den Anzeige-Bezeichner (`name`,
+   `handle`, bei `Post` der `text`). Der Bezeichner ist ein echtes Statement (SoT),
+   `entity.label` ist nur Cache. Nicht jeder Typ ist `Nameable` — ein Post braucht
+   keinen Namen, sein Text ist sein Bezeichner.
+5. **≥1 `identifying`-Prädikat**, wenn der Typ aus Quellen befüllt wird (`email`,
+   `account_uri`, `url`) — sonst fünf Duplikate aus fünf Quellen. Identifying-Keys sind
+   der deterministische Dedup-Pfad (§7.2).
+6. **`wikidata_qid`**, wo es das Konzept extern gibt.
+
+### 14.5 Zwei Wege in die Registry — Migration vs. Gate
+
+Beide Wege erfüllen **dieselben Regeln** (die, die `approve_*` im Code prüft). Der
+Unterschied ist nur, wer kuratiert:
+
+- **Geplante, designte Erweiterung** (neues Vertical, neue Event-Familie, Refactoring
+  der Ontologie): **SQL-Migration** in `db/migrations/` — versioniert, auf frischer DB
+  reproduzierbar, und mit **Rationale-Kommentar im Header**, der die
+  Modellierungsentscheidung nach §14.1 dokumentiert (der 0007-Standard). Die Migration
+  ist das Design-Review; wer sie schreibt, hält sich an §14.1–§14.4 wie das Gate.
+- **Zur Laufzeit Entdecktes** (LLM-Extraktor, Ad-hoc beim Erfassen): `proposed_type` /
+  `proposed_predicate` → **Review-Gate**. Der Extraktor schreibt nie frei (§7.1).
+
+Nie: Registry-Zeilen von Hand in der Live-DB einfügen (weder Migration noch Gate = Drift),
+oder für eine neue Domäne Tabellen/Spalten anlegen. Das Statement trägt alles —
+eine neue Tabelle ist fast immer der falsche Reflex (§3.1).
+
+### 14.6 Ingest-Philosophie: Snapshots, nicht Wahrheiten
+
+- **Quellen sind unvollständig.** Ein Import ist ein Snapshot, kein Weltzustand: Ein
+  bereits bekanntes Statement wird **re-bestätigt** (neue `reference` ans existierende
+  Statement), nicht dupliziert. Abwesenheit in einem Snapshot ist **kein Gegenbeweis**
+  (kein implizites Unfollow/Deprecate).
+- **Preview → Commit:** Schreibende Importe zeigen erst read-only, was passieren würde
+  (inkl. als ungültig markierter Rows), und schreiben erst auf Bestätigung.
+- **Überall `canonical_id()`** — Subjekt und Objekt werden vor dem Write durch die
+  Merge-Kette aufgelöst; Merges bleiben so für alle Writer transparent.
+- Identitäts-Anker (`entity`-Zeilen, z. B. Seed-Plattformen) brauchen keine Provenance —
+  Statements immer (Invariante 3).
 
 ---
 
