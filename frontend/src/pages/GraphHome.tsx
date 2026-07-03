@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Kind } from '../api/types'
 import { EntityLink, ErrorBox, KindBadge } from '../components/bits'
+import { useOptionNav } from '../components/useOptionNav'
 import { GRAPH_OPTIONS, GRAPH_STYLE, NODE_COLORS, kindColor, kindShape } from '../graph/style'
 import { useVocabulary } from '../hooks/useVocabulary'
 
@@ -131,6 +132,13 @@ export function GraphHome() {
     enabled: query.trim().length >= 2,
   })
 
+  const results = query.trim().length >= 2 ? (search.data ?? []).slice(0, 8) : []
+  const { active, listRef, onKeyDown } = useOptionNav(
+    results,
+    (hit) => { spotlight(hit.id); setQuery('') },
+    () => setQuery(''),
+  )
+
   if (graph.error) return <ErrorBox error={graph.error} />
 
   return (
@@ -141,12 +149,17 @@ export function GraphHome() {
             placeholder="Weltmodell durchsuchen …"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onKeyDown}
             aria-label="Weltmodell durchsuchen"
+            role="combobox"
+            aria-expanded={results.length > 0}
           />
-          {query.trim().length >= 2 && (search.data?.length ?? 0) > 0 && (
-            <div className="options">
-              {search.data!.slice(0, 8).map((hit) => (
-                <button key={hit.id} type="button" onClick={() => { spotlight(hit.id); setQuery('') }}>
+          {results.length > 0 && (
+            <div className="options" role="listbox" ref={listRef}>
+              {results.map((hit, i) => (
+                <button key={hit.id} type="button" role="option" aria-selected={i === active}
+                  className={i === active ? 'active' : undefined}
+                  onClick={() => { spotlight(hit.id); setQuery('') }}>
                   <span className="chip">{hit.type_id}</span>
                   <span>{hit.label ?? hit.id.slice(0, 8)}</span>
                 </button>

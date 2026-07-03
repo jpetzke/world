@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
 import type { Kind, ResolveResult, SearchHit, ValuePayload } from '../api/types'
+import { Combobox } from '../components/Combobox'
 import { EntityAutocomplete } from '../components/EntityAutocomplete'
 import { SourcePicker, ensureSource, type SourceDraft } from '../components/SourcePicker'
 import { ValueEditor } from '../components/ValueEditor'
@@ -448,14 +449,14 @@ function FactComposer({ subjectTypeId, facts, onChange, exclude }: {
       <div className="fact-add">
         <div className="row">
           <Field label="Prädikat">
-            <select value={predicateId} onChange={(e) => { setPredicateId(e.target.value); setValue(null) }}>
-              <option value="">— wählen —</option>
-              {predicates.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}{p.range_type ? ` → ${p.range_type}` : ''}
-                </option>
-              ))}
-            </select>
+            <Combobox
+              value={predicateId}
+              onChange={(id) => { setPredicateId(id); setValue(null) }}
+              options={predicates.map((p) => ({
+                id: p.id,
+                label: `${p.label}${p.range_type ? ` → ${p.range_type}` : ''}`,
+              }))}
+            />
           </Field>
           {predicate && (
             <div style={{ flex: 2 }}>
@@ -541,10 +542,11 @@ function QualifierEditor({ qualifiers, onChange }: {
       )}
       <div className="row">
         <Field label="Prädikat">
-          <select value={predicateId} onChange={(e) => { setPredicateId(e.target.value); setValue(null) }}>
-            <option value="">— wählen —</option>
-            {allowed.map((p) => <option key={p.id} value={p.id}>{p.id}</option>)}
-          </select>
+          <Combobox
+            value={predicateId}
+            onChange={(id) => { setPredicateId(id); setValue(null) }}
+            options={allowed.map((p) => ({ id: p.id, label: p.id }))}
+          />
         </Field>
         <div style={{ flex: 2 }}>
           {predicate && (

@@ -335,7 +335,8 @@ tr:hover td { background: var(--bg1); }
   background: none; border: none; border-radius: 0;
   padding: 7px 10px;
 }
-.autocomplete .options button:hover { background: var(--bg3); }
+.autocomplete .options button:hover,
+.autocomplete .options button.active { background: var(--bg3); }
 
 .simbar {
   display: inline-block;
@@ -438,7 +439,7 @@ td { transition: background-color .12s ease; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
-.panel { animation: rise .22s ease both; }
+.panel { animation: rise .22s ease; }
 .error-box, .ok-box { animation: rise .18s ease both; }
 .autocomplete .options { animation: fade .12s ease both; transform-origin: top; }
 

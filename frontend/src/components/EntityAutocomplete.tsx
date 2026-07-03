@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { SearchHit } from '../api/types'
 import { SimilarityBar } from './bits'
+import { useOptionNav } from './useOptionNav'
 
 interface Props {
   placeholder?: string
@@ -16,6 +17,8 @@ export function EntityAutocomplete({ placeholder, typeId, onSelect, selected }: 
   const [hits, setHits] = useState<SearchHit[]>([])
   const [open, setOpen] = useState(false)
   const timer = useRef<number>(undefined)
+  const choose = (hit: SearchHit) => { onSelect(hit); setOpen(false) }
+  const { active, listRef, onKeyDown } = useOptionNav(hits, choose, () => setOpen(false))
 
   useEffect(() => {
     window.clearTimeout(timer.current)
@@ -52,11 +55,16 @@ export function EntityAutocomplete({ placeholder, typeId, onSelect, selected }: 
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => hits.length && setOpen(true)}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onKeyDown={open ? onKeyDown : undefined}
+        role="combobox"
+        aria-expanded={open && hits.length > 0}
       />
       {open && hits.length > 0 && (
-        <div className="options">
-          {hits.map((hit) => (
-            <button key={hit.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onSelect(hit); setOpen(false) }}>
+        <div className="options" role="listbox" ref={listRef}>
+          {hits.map((hit, i) => (
+            <button key={hit.id} type="button" role="option" aria-selected={i === active}
+              className={i === active ? 'active' : undefined}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => choose(hit)}>
               <span className="chip">{hit.type_id}</span>
               <span style={{ flex: 1 }}>{hit.label ?? hit.id.slice(0, 8)}</span>
               <SimilarityBar value={hit.similarity} />
