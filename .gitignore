@@ -17,3 +17,6 @@ __pycache__/
 # Frontend
 node_modules/
 frontend/dist/
+
+# Dev-Stack (dev.sh)
+.dev/
