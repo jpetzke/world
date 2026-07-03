@@ -485,3 +485,152 @@ td { transition: background-color .12s ease; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-row { display: flex; align-items: center; gap: 10px; color: var(--text2); padding: 20px 2px; }
+
+/* --- Anlegen: Auswahl & Wizard ---------------------------------------- */
+
+.choice-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text1);
+  margin: 4px 0 16px;
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.choice-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  text-align: left;
+  padding: 24px 20px;
+  min-height: 158px;
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  animation: rise .22s ease both;
+}
+.choice-card:hover { background: var(--bg2); transform: none; }
+.choice-card:active:not(:disabled) { transform: none; }
+.choice-card.continuant:hover { border-color: var(--continuant); }
+.choice-card.occurrent:hover { border-color: var(--occurrent); }
+.choice-card.fact:hover { border-color: var(--continuant); }
+.choice-card:nth-child(2) { animation-delay: .04s; }
+.choice-card:nth-child(3) { animation-delay: .08s; }
+.choice-card:nth-child(4) { animation-delay: .12s; }
+.choice-card:nth-child(5) { animation-delay: .16s; }
+
+.choice-title { font-size: 16px; font-weight: 600; color: var(--text0); }
+.choice-desc { font-size: 12px; color: var(--text2); }
+
+/* Große Ontologie-Embleme — dieselbe Formsprache wie die Kind-Badges */
+.choice-glyph { position: relative; flex: 0 0 auto; display: inline-block; width: 40px; height: 40px; }
+.choice-glyph.continuant.lg, .choice-glyph.occurrent.lg { width: 52px; height: 52px; }
+.choice-glyph.continuant::after, .choice-glyph.occurrent::after { content: ''; position: absolute; inset: 4px; }
+.choice-glyph.continuant::after {
+  border-radius: 50%;
+  background: var(--continuant);
+  box-shadow: 0 0 26px color-mix(in srgb, var(--continuant) 50%, transparent);
+}
+.choice-glyph.occurrent::after {
+  inset: 7px;
+  transform: rotate(45deg);
+  background: var(--occurrent);
+  box-shadow: 0 0 26px color-mix(in srgb, var(--occurrent) 50%, transparent);
+}
+.choice-glyph.fact { width: 46px; height: 24px; }
+.choice-glyph.fact.lg { width: 60px; height: 32px; }
+.choice-glyph.fact svg { width: 100%; height: 100%; }
+.choice-glyph.fact svg line, .choice-glyph.fact svg path { stroke: var(--continuant); stroke-width: 2; fill: none; }
+.choice-glyph.fact svg circle { fill: var(--continuant); }
+
+.choice-sep {
+  display: flex; align-items: center; gap: 14px;
+  margin: 22px 0;
+  color: var(--text2);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+}
+.choice-sep::before, .choice-sep::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+.choice-card.fact.wide {
+  flex-direction: row; align-items: center; gap: 18px;
+  min-height: 0; padding: 18px 20px;
+}
+.choice-card .choice-body { display: flex; flex-direction: column; gap: 4px; }
+
+.backlink {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: 5px; padding: 5px 12px;
+  color: var(--text1); font-size: 12.5px; margin-bottom: 20px;
+}
+.backlink:hover { color: var(--text0); background: var(--bg2); border-color: var(--line-strong); }
+
+.wizard-head { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 20px; }
+.wizard-head h1 { margin: 2px 0 4px; }
+.wizard-desc { color: var(--text1); font-size: 13px; margin: 0; }
+
+.name-field input { font-size: 16px; padding: 10px 12px; }
+.dedup { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+.fact-composer .fact-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 14px; }
+.fact-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg0); border: 1px solid var(--line); border-radius: 4px;
+  padding: 6px 6px 6px 12px;
+}
+.fact-row .predicate { color: var(--text1); }
+.fact-row .fact-val { flex: 1; color: var(--text0); }
+
+.fact-add { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
+.fact-add > .row { align-items: flex-end; }
+.fact-add > .row > .field, .fact-add > .row .field { margin-bottom: 0; }
+/* Select, Wert-Inputs und der +-Button teilen dieselbe Höhe → saubere Kante */
+.fact-add > .row select,
+.fact-add > .row input { height: 36px; }
+.fact-add > .row .icon-btn { width: 36px; height: 36px; }
+.fact-add .more-toggle { margin-top: 8px; }
+.more-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: none; padding: 4px 0;
+  color: var(--text2); font-family: var(--mono); font-size: 11px;
+}
+.more-toggle:hover { color: var(--text1); border: none; }
+.fact-more {
+  margin-top: 10px; padding: 12px;
+  border: 1px dashed var(--line); border-radius: 4px; background: var(--bg0);
+}
+.qualifier-block { margin-top: 12px; }
+
+.source-bar { margin-bottom: 16px; }
+.source-toggle {
+  display: flex; justify-content: space-between; align-items: center; width: 100%;
+  background: var(--bg1); border: 1px solid var(--line); border-radius: 5px;
+  padding: 10px 14px;
+}
+.source-toggle:hover { border-color: var(--line-strong); }
+
+button.primary.big { font-size: 14px; padding: 10px 20px; }
+
+/* --- SVG-Icons (nie Emoji / Text-Glyphen) ----------------------------- */
+
+.icon {
+  width: 1em; height: 1em; flex: none; display: inline-block;
+  vertical-align: -0.125em;
+  fill: none; stroke: currentColor; stroke-width: 1.5;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.icon-text { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Quadratischer Icon-Button — richtet sich an der Feldhöhe aus */
+.icon-btn { display: grid; place-items: center; padding: 0; width: 38px; height: 38px; }
+.icon-btn .icon { width: 17px; height: 17px; }
+.icon-btn.sm { width: 24px; height: 24px; }
+.icon-btn.sm .icon { width: 14px; height: 14px; }

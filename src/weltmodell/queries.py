@@ -260,6 +260,22 @@ def graph_snapshot(conn: psycopg.Connection, *, max_nodes: int = 400) -> dict[st
     return {"nodes": nodes, "edges": edges, "total_nodes": total}
 
 
+def _descendant_type_ids(conn: psycopg.Connection, type_id: str) -> list[str]:
+    """Typ + alle Subtypen — damit ein Filter auf einen abstrakten Typ (z. B.
+    Agent) auch dessen konkrete Subtypen (Person, Organization) findet."""
+    return [
+        r["id"]
+        for r in conn.execute(
+            """WITH RECURSIVE down AS (
+                 SELECT id FROM entity_type WHERE id = %s
+                 UNION ALL
+                 SELECT t.id FROM entity_type t JOIN down ON t.parent_id = down.id
+               ) SELECT id FROM down""",
+            (type_id,),
+        ).fetchall()
+    ]
+
+
 def semantic_search(
     conn: psycopg.Connection,
     query: str,
@@ -267,7 +283,11 @@ def semantic_search(
     type_id: str | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    """pgvector-Suche über Entity-Embeddings (§0, §7.2) + Label-Fallback."""
+    """pgvector-Suche über Entity-Embeddings (§0, §7.2) + Label-Fallback.
+
+    Der Typ-Filter ist subtyp-fähig: Filtern auf `Agent` liefert Person/Organization.
+    """
+    types = _descendant_type_ids(conn, type_id) if type_id else None
     embedding = get_embedder().embed(
         f"{type_id}: {query}" if type_id else query
     )
@@ -276,10 +296,10 @@ def semantic_search(
                   1 - (embedding <=> %(emb)s::vector) AS similarity
            FROM entity
            WHERE merged_into IS NULL AND embedding IS NOT NULL
-             AND (%(type_id)s::text IS NULL OR type_id = %(type_id)s)
+             AND (%(types)s::text[] IS NULL OR type_id = ANY(%(types)s))
            ORDER BY embedding <=> %(emb)s::vector
            LIMIT %(limit)s""",
-        {"emb": embedding, "type_id": type_id, "limit": limit},
+        {"emb": embedding, "types": types, "limit": limit},
     ).fetchall()
     results = [
         {**r, "id": str(r["id"]), "similarity": float(r["similarity"])} for r in rows
@@ -287,10 +307,10 @@ def semantic_search(
     seen = {r["id"] for r in results}
     for r in conn.execute(
         """SELECT id, label, type_id FROM entity
-           WHERE merged_into IS NULL AND label ILIKE %s
-             AND (%s::text IS NULL OR type_id = %s)
-           LIMIT %s""",
-        (f"%{query}%", type_id, type_id, limit),
+           WHERE merged_into IS NULL AND label ILIKE %(q)s
+             AND (%(types)s::text[] IS NULL OR type_id = ANY(%(types)s))
+           LIMIT %(limit)s""",
+        {"q": f"%{query}%", "types": types, "limit": limit},
     ).fetchall():
         if str(r["id"]) not in seen:
             results.append({**r, "id": str(r["id"]), "similarity": None})

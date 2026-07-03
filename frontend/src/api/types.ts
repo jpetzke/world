@@ -8,6 +8,9 @@ export interface EntityType {
   parent_id: string | null
   kind: Kind
   label: string
+  abstract: boolean
+  /** Prädikat, das den Anzeige-Bezeichner trägt (z. B. Person→name, Account→handle). */
+  label_predicate: string | null
   wikidata_qid: string | null
 }
 

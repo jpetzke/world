@@ -7,10 +7,10 @@ from weltmodell.errors import RegistryError
 
 
 def test_seed_types(conn):
-    # Minimalmodell: zwei flache Continuant-Typen, keine abstrakten Wurzeln
+    # Person hängt unter dem abstrakten Agent-Knoten; SocialMediaAccount ist Wurzel.
     person = registry.get_type(conn, "Person")
     assert person["kind"] == "continuant"
-    assert registry.type_ancestors(conn, "Person") == ["Person"]
+    assert registry.type_ancestors(conn, "Person") == ["Person", "Agent"]
     account = registry.get_type(conn, "SocialMediaAccount")
     assert account["kind"] == "continuant"
     assert registry.type_ancestors(conn, "SocialMediaAccount") == ["SocialMediaAccount"]

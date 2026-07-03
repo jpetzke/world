@@ -28,11 +28,11 @@ def test_non_identifying_predicate_never_matches(conn, source_id):
     account = str(create_entity(
         conn, type_id="SocialMediaAccount", label="@resolvetest")["id"])
     commit_statement(
-        conn, subject_id=account, predicate_id="platform",
+        conn, subject_id=account, predicate_id="handle",
         value={"type": "string", "text": "resolvenet"}, source_ids=[source_id],
     )
     res = resolve(conn, type_id="SocialMediaAccount",
-                  identifiers={"platform": "resolvenet"})
+                  identifiers={"handle": "resolvenet"})
     assert res["match"] is None
 
 

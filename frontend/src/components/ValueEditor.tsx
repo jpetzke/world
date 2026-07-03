@@ -8,10 +8,12 @@ interface Props {
   rangeType?: string | null
   value: ValuePayload | null
   onChange: (value: ValuePayload | null) => void
+  /** Bei entity-Werten: liefert den gewählten Treffer (für die Label-Anzeige). */
+  onHit?: (hit: SearchHit | null) => void
 }
 
 /** Polymorpher Wert-Editor (§3.1): eine Struktur, sieben Wertarten. */
-export function ValueEditor({ rangeKind, rangeType, value, onChange }: Props) {
+export function ValueEditor({ rangeKind, rangeType, value, onChange, onHit }: Props) {
   const [entityHit, setEntityHit] = useState<SearchHit | null>(null)
   const [jsonError, setJsonError] = useState<string | null>(null)
 
@@ -24,6 +26,7 @@ export function ValueEditor({ rangeKind, rangeType, value, onChange }: Props) {
             selected={entityHit}
             onSelect={(hit) => {
               setEntityHit(hit)
+              onHit?.(hit)
               onChange(hit ? { type: 'entity', object_id: hit.id } : null)
             }}
           />

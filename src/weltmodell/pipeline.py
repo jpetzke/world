@@ -118,13 +118,22 @@ class RuleBasedExtractor:
             result.statements.append(
                 CandidateStatement(person, "owns_account", account, confidence=0.9)
             )
-            for pred, val in (("handle", handle), ("platform", platform)):
-                if val:
-                    result.statements.append(
-                        CandidateStatement(account, pred,
-                                           {"type": "string", "text": val},
-                                           confidence=0.9)
-                    )
+            if handle:
+                result.statements.append(
+                    CandidateStatement(account, "handle",
+                                       {"type": "string", "text": handle},
+                                       confidence=0.9)
+                )
+            if platform:
+                # platform ist eine kontrollierte Entity (Platform), kein Freitext.
+                # ponytail: resolve-or-create per Label kanonisiert nicht gegen den
+                # geseedeten Set („linkedin" ≠ „LinkedIn") — Platform-Dedup ist später
+                # Sache der Entity-Resolution, nicht des Extraktors.
+                result.statements.append(
+                    CandidateStatement(account, "platform",
+                                       EntityRef("Platform", label=platform),
+                                       confidence=0.9)
+                )
             for target_uri in acc.get("follows", []):
                 target = EntityRef(
                     "SocialMediaAccount", label=target_uri,

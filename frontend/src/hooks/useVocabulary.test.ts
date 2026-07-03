@@ -4,11 +4,11 @@ import { buildHelpers } from './useVocabulary'
 
 const vocab: Vocabulary = {
   types: [
-    { id: 'Continuant', parent_id: null, kind: 'continuant', label: 'C', wikidata_qid: null },
-    { id: 'Agent', parent_id: 'Continuant', kind: 'continuant', label: 'A', wikidata_qid: null },
-    { id: 'Person', parent_id: 'Agent', kind: 'continuant', label: 'P', wikidata_qid: null },
-    { id: 'Occurrent', parent_id: null, kind: 'occurrent', label: 'O', wikidata_qid: null },
-    { id: 'Mention', parent_id: 'Occurrent', kind: 'occurrent', label: 'M', wikidata_qid: null },
+    { id: 'Continuant', parent_id: null, kind: 'continuant', label: 'C', abstract: true, label_predicate: null, wikidata_qid: null },
+    { id: 'Agent', parent_id: 'Continuant', kind: 'continuant', label: 'A', abstract: true, label_predicate: null, wikidata_qid: null },
+    { id: 'Person', parent_id: 'Agent', kind: 'continuant', label: 'P', abstract: false, label_predicate: 'name', wikidata_qid: null },
+    { id: 'Occurrent', parent_id: null, kind: 'occurrent', label: 'O', abstract: true, label_predicate: null, wikidata_qid: null },
+    { id: 'Mention', parent_id: 'Occurrent', kind: 'occurrent', label: 'M', abstract: false, label_predicate: null, wikidata_qid: null },
   ],
   interfaces: [{ id: 'Nameable', label: 'N' }],
   implementations: [{ type_id: 'Person', interface_id: 'Nameable' }],
