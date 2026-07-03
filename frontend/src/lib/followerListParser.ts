@@ -31,6 +31,10 @@ const RESERVED_PATHS = new Set([
 
 const HEADER_LINES = new Set(['search', 'suche', 'suchen'])
 
+// Zwischen Username-Link und Follow-Link steht ein nackter Separator-Textknoten
+// (Interpunkt/Bullet) — kein Display-Name.
+const SEPARATOR_RE = /^[·•]+$/
+
 export function parseFollowerList(paste: string): ParseResult {
   const trimmed = paste.trim()
   if (!trimmed) throw new Error('Leerer Paste — nichts zu parsen.')
@@ -67,7 +71,7 @@ function displayNameIn(container: Element): string | null {
   const walker = container.ownerDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT)
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const text = node.textContent?.trim()
-    if (!text) continue
+    if (!text || SEPARATOR_RE.test(text)) continue
     let el = node.parentElement
     let excluded = false
     while (el && el !== container) {

@@ -44,6 +44,28 @@ describe('parseFollowerList — HTML', () => {
     ])
   })
 
+  it('überspringt den · Separator vor dem Follow-Link', () => {
+    // Reale Dialog-Struktur bei nicht-gefolgten Accounts: Username · Follow
+    // inline, Display-Name darunter. Der nackte · darf nicht als Name greifen.
+    const row = `
+      <div class="row">
+        <a href="/marrianna.fd/"><img alt="marrianna.fd's profile picture"></a>
+        <div>
+          <div>
+            <a href="/marrianna.fd/"><span>marrianna.fd</span></a>
+            <span>·</span>
+            <a href="/marrianna.fd/"><div>Follow</div></a>
+          </div>
+          <span><span>Mariana</span></span>
+        </div>
+        <button type="button"><div>Remove</div></button>
+      </div>`
+    const result = parseFollowerList(row)
+    expect(result.rows).toEqual([
+      { username: 'marrianna.fd', displayName: 'Mariana', ambiguous: false },
+    ])
+  })
+
   it('lehnt HTML ohne Profil-Links ab', () => {
     expect(() => parseFollowerList('<div><a href="/explore/">x</a></div>'))
       .toThrow(/Keine Profil-Links/)
