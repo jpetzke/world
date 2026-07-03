@@ -74,10 +74,12 @@ def test_commit_creates_accounts_and_follows(conn, owner):
 
     # Account trägt handle, platform→Instagram, Display-Name als 'name'
     row = conn.execute(
-        """SELECT e.id FROM statement s JOIN entity e ON e.id = s.subject_id
+        """SELECT e.id, e.label FROM statement s JOIN entity e ON e.id = s.subject_id
            WHERE s.predicate_id = 'account_uri'
              AND s.value_text = 'instagram:carina_sch03'""",
     ).fetchone()
+    # Label-Cache spiegelt den handle (label_predicate) — Convention ohne '@'
+    assert row["label"] == "carina_sch03"
     stmts = conn.execute(
         "SELECT predicate_id, value_text FROM statement WHERE subject_id = %s",
         (row["id"],),

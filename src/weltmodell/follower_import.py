@@ -211,7 +211,7 @@ def commit_follower_list(
         if entity_id is None:
             username = row["username"]
             entity_id, created = get_or_create_entity(
-                conn, type_id="SocialMediaAccount", label=f"@{username}",
+                conn, type_id="SocialMediaAccount", label=username,
                 identifiers={"account_uri": f"instagram:{username}"},
                 source_ids=[sid],
             )
