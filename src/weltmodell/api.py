@@ -7,14 +7,14 @@ LLM-Writes gleichermaßen (Invariante 2).
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from . import files, pipeline, queries, registry, resolution, statements
+from . import files, follower_import, pipeline, queries, registry, resolution, statements
 from .db import get_conn, run_migrations
 from .entities import create_entity, get_entity
 from .errors import NotFoundError, RegistryError, ValidationError
@@ -148,6 +148,22 @@ class TraversePayload(BaseModel):
     start_id: str
     max_depth: int = 3
     predicates: list[str] | None = None
+
+
+class FollowerRow(BaseModel):
+    username: str
+    display_name: str | None = None
+
+
+class FollowerListPreviewPayload(BaseModel):
+    owner_entity_id: str
+    direction: Literal["followers", "following"]
+    rows: list[FollowerRow] = Field(min_length=1)
+
+
+class FollowerListCommitPayload(FollowerListPreviewPayload):
+    observed_at: str | None = None
+    agent: str = "ui:follower-import"
 
 
 class IngestPayload(BaseModel):
@@ -366,6 +382,23 @@ def get_source_file_download(source_id: str, conn=Depends(db)):
 @router.get("/sources/{source_id}")
 def get_source_detail(source_id: str, conn=Depends(db)):
     return queries.get_source(conn, source_id)
+
+
+@router.post("/ingest/follower-list/preview")
+def post_follower_list_preview(payload: FollowerListPreviewPayload, conn=Depends(db)):
+    return follower_import.preview_follower_list(
+        conn, rows=[r.model_dump() for r in payload.rows],
+        owner_entity_id=payload.owner_entity_id, direction=payload.direction,
+    )
+
+
+@router.post("/ingest/follower-list/commit", status_code=201)
+def post_follower_list_commit(payload: FollowerListCommitPayload, conn=Depends(db)):
+    return follower_import.commit_follower_list(
+        conn, rows=[r.model_dump() for r in payload.rows],
+        owner_entity_id=payload.owner_entity_id, direction=payload.direction,
+        observed_at=payload.observed_at, agent=payload.agent,
+    )
 
 
 @router.post("/ingest", status_code=201)
