@@ -1,9 +1,9 @@
 import cytoscape from 'cytoscape'
-// @ts-expect-error – cytoscape-fcose ships no types
-import fcose from 'cytoscape-fcose'
+// @ts-expect-error – cytoscape-d3-force ships no types
+import d3Force from 'cytoscape-d3-force'
 import type { Kind } from '../api/types'
 
-cytoscape.use(fcose)
+cytoscape.use(d3Force)
 
 export const NODE_COLORS: Record<Kind, string> = {
   continuant: '#5fb0d4',
@@ -14,22 +14,32 @@ export const kindColor = (kind: Kind | undefined) => NODE_COLORS[kind ?? 'contin
 export const kindShape = (kind: Kind | undefined) =>
   kind === 'occurrent' ? 'diamond' : 'ellipse'
 
-/** fCoSE: force-directed, aber ~10× schneller als 'cose' und stabiler bei Hubs.
-    Ein Aufruf reicht für 100–2000 Knoten ohne den Main-Thread zu blockieren. */
+/** Lebendige Physik statt Einmal-Layout: d3-force läuft kontinuierlich, stößt
+    Knoten ab (manyBody) und lässt sie nie überlappen (collide = Radius+Rand).
+    infinite:true hält die Simulation drag-reaktiv — beim Ziehen heizt sie auf
+    und die Nachbarn weichen aus; im Ruhezustand stoppt d3 den eigenen Timer
+    (alphaMin), also 0 CPU, wenn nichts passiert. Kein Spektral-Freeze wie fcose.
+    Bei mehr Knoten setzt sie sich schneller (höheres alphaDecay) → bleibt flott. */
 export const graphLayout = (nodeCount: number): cytoscape.LayoutOptions =>
   ({
-    name: 'fcose',
-    quality: nodeCount > 500 ? 'default' : 'proof',
-    animate: false,
-    randomize: true,
-    packComponents: true,
-    nodeRepulsion: () => 9000,
-    idealEdgeLength: () => 90,
-    nodeSeparation: 90,
-    gravity: 0.25,
-    numIter: nodeCount > 800 ? 1500 : 2500,
-    padding: 40,
-  }) as cytoscape.LayoutOptions
+    name: 'd3-force',
+    animate: true,
+    infinite: true,
+    // Startpositionen kommen aus dem Seed-Layout (GraphCanvas) — so muss die
+    // Simulation nur nachjustieren statt aus dem Chaos zu kühlen (schnell + ruckelfrei).
+    randomize: false,
+    fixedAfterDragging: false,
+    linkId: (d: { id: string }) => d.id,
+    linkDistance: 80,
+    linkStrength: 0.4,
+    manyBodyStrength: nodeCount > 1500 ? -80 : -160,
+    collideRadius: (d: { size?: number }) => (d.size ?? 20) / 2 + 7,
+    collideStrength: 0.9,
+    velocityDecay: 0.5,
+    // Zügig auskühlen → in ~1–2 s in Ruhe (d3 stoppt bei alphaMin, 0 CPU).
+    alphaDecay: 0.06,
+    alphaMin: 0.02,
+  }) as unknown as cytoscape.LayoutOptions
 
 /** Gemeinsamer Look für alle Graph-Ansichten (Nachtarchiv).
     Kanten-Labels sind per Default aus (LOD/Performance) und erscheinen nur an
@@ -117,8 +127,9 @@ export const GRAPH_OPTIONS = {
   wheelSensitivity: 0.3,
   maxZoom: 2,
   minZoom: 0.05,
-  // Bei vielen Kanten: kein Textur-Redraw während Pan/Zoom → flüssig.
-  textureOnViewport: true,
   pixelRatio: 1,
+  // Kanten während Pan/Zoom ausblenden + Textur-Snapshot: hält den
+  // Canvas-Renderer flüssig, wo er sonst an Kanten+Labels erstickt.
   hideEdgesOnViewport: true,
+  textureOnViewport: true,
 } as const

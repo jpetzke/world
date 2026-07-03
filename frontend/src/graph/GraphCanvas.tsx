@@ -146,7 +146,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       container: containerRef.current,
       elements,
       style: GRAPH_STYLE,
-      layout: graphLayout(nodes.length),
       ...GRAPH_OPTIONS,
     })
     cyRef.current = cy
@@ -165,8 +164,23 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       }
     })
     cy.on('dbltap', 'node', (e) => onOpenRef.current?.(e.target.id()))
+
+    // Seed: sofortiges Kreis-Layout gibt der Physik einen entzerrten Start
+    // (kein blockierendes Vor-Auskühlen — das fror den Main-Thread ein).
+    cy.layout({ name: 'circle', animate: false }).run()
+    // Live-Physik: läuft animiert vom Seed ins Gleichgewicht, bleibt drag-
+    // reaktiv (infinite) und stoppt in Ruhe bei alphaMin → 0 CPU.
+    const layout = cy.layout(graphLayout(nodes.length))
+    layout.run()
+    // Einmal einpassen, sobald sich die Wolke grob gesetzt hat.
+    const fitTimer = setTimeout(() => cyRef.current?.fit(undefined, 40), 900)
     paint()
-    return () => { cy.destroy(); cyRef.current = null }
+    return () => {
+      clearTimeout(fitTimer)
+      layout.stop()
+      cy.destroy()
+      cyRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elements, paint])
 
