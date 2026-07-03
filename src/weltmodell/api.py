@@ -146,8 +146,9 @@ class ResolvePayload(BaseModel):
 
 class TraversePayload(BaseModel):
     start_id: str
-    max_depth: int = 3
+    max_depth: int = 1
     predicates: list[str] | None = None
+    max_nodes: int = 400
 
 
 class FollowerRow(BaseModel):
@@ -310,9 +311,9 @@ def get_search(q: str, type_id: str | None = None, limit: int = 10, conn=Depends
 
 @router.post("/query/traverse")
 def post_traverse(payload: TraversePayload, conn=Depends(db)):
-    return queries.traverse(
+    return queries.neighborhood(
         conn, payload.start_id, max_depth=payload.max_depth,
-        predicates=payload.predicates,
+        predicates=payload.predicates, max_nodes=min(payload.max_nodes, 2000),
     )
 
 

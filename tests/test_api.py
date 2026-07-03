@@ -101,10 +101,10 @@ def test_api_ingest_search_traverse(client):
     }).json()
     person_id = hits[0]["id"]
 
-    paths = client.post("/api/query/traverse", json={
+    graph = client.post("/api/query/traverse", json={
         "start_id": person_id, "max_depth": 2,
     }).json()
-    assert any(p["label"] == "@apiingest" for p in paths)
+    assert any(n["label"] == "@apiingest" for n in graph["nodes"])
 
 
 def test_api_stats_entities_sources(client):

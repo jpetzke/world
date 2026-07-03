@@ -180,54 +180,77 @@ def entity_timeline(conn: psycopg.Connection, entity_id: str) -> list[dict[str, 
     return dated + undated
 
 
-def traverse(
+def neighborhood(
     conn: psycopg.Connection,
     start_id: str,
     *,
-    max_depth: int = 3,
+    max_depth: int = 1,
     predicates: list[str] | None = None,
-) -> list[dict[str, Any]]:
-    """Multi-Hop-Traversierung über Recursive CTE (§0, §10; Apache AGE später).
+    max_nodes: int = 400,
+) -> dict[str, Any]:
+    """Ungerichtete k-Hop-Nachbarschaft als induzierter Teilgraph (§0, §10).
 
-    Folgt ausgehenden Entity-Kanten der aktuellen Sicht, zyklenfrei.
+    Kein Pfad-Enumerator: eine Recursive CTE sammelt per BFS die *erreichbaren
+    Knoten* (durch UNION dedupliziert und zyklensicher), danach werden ALLE
+    Entity-Kanten zwischen diesen Knoten geliefert — Cross-Links inklusive.
+
+    Kanten zählen in beide Richtungen. So zeigt auch ein Knoten mit nur
+    *eingehenden* Kanten (z. B. ein viel-gefolgter Account) seine Nachbarschaft,
+    statt leer zu bleiben. Bei mehr als max_nodes Treffern werden die nächsten
+    Knoten (kleinste Hop-Distanz) behalten; total_nodes nennt die echte Größe.
     """
     start_id = canonical_id(conn, start_id)
-    rows = conn.execute(
-        """WITH RECURSIVE walk AS (
-             SELECT s.object_id AS node_id, 1 AS depth,
-                    ARRAY[s.subject_id, s.object_id] AS path,
-                    ARRAY[s.predicate_id] AS via
-             FROM statement s
-             WHERE s.subject_id = %(start)s AND s.value_type = 'entity'
+    reached = conn.execute(
+        """WITH RECURSIVE reach(node_id, depth) AS (
+             SELECT %(start)s::uuid, 0
+             UNION
+             SELECT CASE WHEN s.subject_id = r.node_id
+                         THEN s.object_id ELSE s.subject_id END,
+                    r.depth + 1
+             FROM reach r
+             JOIN statement s
+               ON (s.subject_id = r.node_id OR s.object_id = r.node_id)
+             WHERE r.depth < %(max_depth)s AND s.value_type = 'entity'
                AND s.system_to IS NULL AND s.rank <> 'deprecated'
-               AND (%(preds)s::text[] IS NULL OR s.predicate_id = ANY(%(preds)s))
-             UNION ALL
-             SELECT s.object_id, w.depth + 1,
-                    w.path || s.object_id, w.via || s.predicate_id
-             FROM statement s
-             JOIN walk w ON s.subject_id = w.node_id
-             WHERE w.depth < %(max_depth)s AND s.value_type = 'entity'
-               AND s.system_to IS NULL AND s.rank <> 'deprecated'
-               AND NOT s.object_id = ANY(w.path)
                AND (%(preds)s::text[] IS NULL OR s.predicate_id = ANY(%(preds)s))
            )
-           SELECT w.node_id, w.depth, w.path, w.via,
-                  e.label, e.type_id
-           FROM walk w JOIN entity e ON e.id = w.node_id
-           ORDER BY w.depth, e.label""",
+           SELECT node_id, min(depth) AS depth
+           FROM reach GROUP BY node_id ORDER BY min(depth)""",
         {"start": start_id, "max_depth": max_depth, "preds": predicates},
     ).fetchall()
-    return [
-        {
-            "entity_id": str(r["node_id"]),
-            "label": r["label"],
-            "type_id": r["type_id"],
-            "depth": r["depth"],
-            "path": [str(p) for p in r["path"]],
-            "via": list(r["via"]),
-        }
-        for r in rows
-    ]
+    total = len(reached)
+    kept = reached[:max_nodes]
+    ids = [r["node_id"] for r in kept]
+    depth_by = {str(r["node_id"]): r["depth"] for r in kept}
+
+    nodes = conn.execute(
+        """SELECT id, type_id, label,
+                  (SELECT count(*) FROM statement s
+                   WHERE (s.subject_id = entity.id OR s.object_id = entity.id)
+                     AND s.system_to IS NULL AND s.rank <> 'deprecated'
+                     AND s.value_type = 'entity') AS degree
+           FROM entity WHERE id = ANY(%s)""",
+        (ids,),
+    ).fetchall()
+    for n in nodes:
+        n["depth"] = depth_by[str(n["id"])]
+
+    edges = conn.execute(
+        """SELECT s.id, s.subject_id, s.object_id, s.predicate_id,
+                  s.rank, s.confidence
+           FROM statement s
+           WHERE s.value_type = 'entity' AND s.system_to IS NULL
+             AND s.rank <> 'deprecated'
+             AND s.subject_id = ANY(%(ids)s) AND s.object_id = ANY(%(ids)s)
+             AND (%(preds)s::text[] IS NULL OR s.predicate_id = ANY(%(preds)s))""",
+        {"ids": ids, "preds": predicates},
+    ).fetchall()
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "total_nodes": total,
+        "start_id": str(start_id),
+    }
 
 
 def list_entities(
@@ -331,6 +354,10 @@ def graph_snapshot(conn: psycopg.Connection, *, max_nodes: int = 400) -> dict[st
     total = conn.execute(
         "SELECT count(*) AS n FROM entity WHERE merged_into IS NULL"
     ).fetchone()["n"]
+    # Nach Grad sortiert, nicht nach Alter: sonst fallen genau die Hubs raus,
+    # die den Graph zusammenhalten, und der Ausschnitt zeigt lose Punkte.
+    # ponytail: korrelierte Subquery über alle Entities; bei >10k Knoten auf
+    # materialisierten Grad umstellen.
     nodes = conn.execute(
         """SELECT id, type_id, label,
                   (SELECT count(*) FROM statement s
@@ -338,7 +365,7 @@ def graph_snapshot(conn: psycopg.Connection, *, max_nodes: int = 400) -> dict[st
                      AND s.system_to IS NULL AND s.rank <> 'deprecated'
                      AND s.value_type = 'entity') AS degree
            FROM entity WHERE merged_into IS NULL
-           ORDER BY created_at DESC LIMIT %s""",
+           ORDER BY degree DESC, created_at DESC LIMIT %s""",
         (max_nodes,),
     ).fetchall()
     ids = [n["id"] for n in nodes]

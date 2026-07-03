@@ -2,7 +2,7 @@
 Person → Account → Account → Person über eine einzige Kanten-Tabelle."""
 
 from weltmodell.entities import create_entity
-from weltmodell.queries import semantic_search, traverse
+from weltmodell.queries import neighborhood, semantic_search
 from weltmodell.statements import commit_statement
 
 
@@ -18,43 +18,83 @@ def _link(conn, subject, predicate, obj, source_id, **kwargs):
     )
 
 
-def test_social_multi_hop(conn, source_id):
+def test_neighborhood_multi_hop(conn, source_id):
     # Person → owns_account → Account → follows → Account → account_of → Person
-    jonas = _entity(conn, "Person", "Traverse Jonas")
-    acc_j = _entity(conn, "SocialMediaAccount", "@traverse_jonas")
-    acc_t = _entity(conn, "SocialMediaAccount", "@traverse_tanja")
-    tanja = _entity(conn, "Person", "Traverse Tanja")
+    jonas = _entity(conn, "Person", "NB Jonas")
+    acc_j = _entity(conn, "SocialMediaAccount", "@nb_jonas")
+    acc_t = _entity(conn, "SocialMediaAccount", "@nb_tanja")
+    tanja = _entity(conn, "Person", "NB Tanja")
 
     _link(conn, jonas, "owns_account", acc_j, source_id)
     _link(conn, acc_j, "follows", acc_t, source_id, confidence=0.8)
     _link(conn, acc_t, "account_of", tanja, source_id)
 
-    paths = traverse(conn, jonas, max_depth=3)
-    by_label = {p["label"]: p for p in paths}
+    g = neighborhood(conn, jonas, max_depth=3)
+    depth = {n["label"]: n["depth"] for n in g["nodes"]}
+    assert depth["NB Jonas"] == 0
+    assert depth["@nb_jonas"] == 1
+    assert depth["@nb_tanja"] == 2
+    assert depth["NB Tanja"] == 3
+    # Alle drei Kanten des Pfads kommen als induzierter Teilgraph zurück
+    assert len(g["edges"]) == 3
 
-    assert by_label["@traverse_jonas"]["depth"] == 1
-    assert by_label["@traverse_tanja"]["depth"] == 2
-    assert by_label["Traverse Tanja"]["depth"] == 3
-    assert by_label["Traverse Tanja"]["via"] == [
-        "owns_account", "follows", "account_of",
-    ]
-
-    # Prädikat-Filter beschneidet den Walk
-    only_owns = traverse(conn, jonas, max_depth=3, predicates=["owns_account"])
-    assert [p["label"] for p in only_owns] == ["@traverse_jonas"]
+    # Prädikat-Filter beschneidet den Teilgraph
+    only_owns = neighborhood(conn, jonas, max_depth=3, predicates=["owns_account"])
+    assert {n["label"] for n in only_owns["nodes"]} == {"NB Jonas", "@nb_jonas"}
 
 
-def test_traverse_skips_deprecated_edges(conn, source_id):
+def test_neighborhood_is_undirected(conn, source_id):
+    # Der Hub hat NUR eingehende Kanten — muss seine Nachbarn trotzdem zeigen.
+    hub = _entity(conn, "SocialMediaAccount", "@nb_hub")
+    fan = _entity(conn, "SocialMediaAccount", "@nb_fan")
+    _link(conn, fan, "follows", hub, source_id)
+
+    g = neighborhood(conn, hub, max_depth=1)
+    assert {n["label"] for n in g["nodes"]} == {"@nb_hub", "@nb_fan"}
+    assert len(g["edges"]) == 1
+    assert g["start_id"] == hub
+
+
+def test_neighborhood_induced_cross_links(conn, source_id):
+    # Dreieck A-B-C: die Diagonale A-C darf nicht fehlen (BFS-Baum verlöre sie).
+    a = _entity(conn, "Person", "NB Tri A")
+    b = _entity(conn, "Person", "NB Tri B")
+    c = _entity(conn, "Person", "NB Tri C")
+    _link(conn, a, "knows", b, source_id)
+    _link(conn, b, "knows", c, source_id)
+    _link(conn, a, "knows", c, source_id)
+
+    g = neighborhood(conn, a, max_depth=2)
+    assert len({n["label"] for n in g["nodes"]}) == 3
+    assert len(g["edges"]) == 3
+
+
+def test_neighborhood_skips_deprecated_and_isolates(conn, source_id):
     a = _entity(conn, "Person", "Kantenperson A")
     b = _entity(conn, "Person", "Kantenperson B")
     stmt = _link(conn, a, "knows", b, source_id)
 
-    assert [p["label"] for p in traverse(conn, a)] == ["Kantenperson B"]
+    g = neighborhood(conn, a)
+    assert {n["label"] for n in g["nodes"]} == {"Kantenperson A", "Kantenperson B"}
 
     from weltmodell.statements import deprecate_statement
 
     deprecate_statement(conn, str(stmt["id"]))
-    assert traverse(conn, a) == []
+    g = neighborhood(conn, a)
+    # Isolierter Knoten: nur er selbst, keine Kanten (nicht leer!)
+    assert {n["label"] for n in g["nodes"]} == {"Kantenperson A"}
+    assert g["edges"] == []
+
+
+def test_neighborhood_caps_nodes_but_reports_total(conn, source_id):
+    hub = _entity(conn, "SocialMediaAccount", "@nb_bighub")
+    for i in range(6):
+        fan = _entity(conn, "SocialMediaAccount", f"@nb_f{i}")
+        _link(conn, fan, "follows", hub, source_id)
+
+    g = neighborhood(conn, hub, max_depth=1, max_nodes=3)
+    assert len(g["nodes"]) == 3          # abgeschnitten
+    assert g["total_nodes"] == 7         # Hub + 6 Fans, ehrlich gezählt
 
 
 def test_semantic_search_finds_fuzzy_label(conn):
