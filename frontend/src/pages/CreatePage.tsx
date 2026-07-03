@@ -5,6 +5,7 @@ import { ApiError, api } from '../api/client'
 import type { Kind, ResolveResult, SearchHit, ValuePayload } from '../api/types'
 import { Combobox } from '../components/Combobox'
 import { EntityAutocomplete } from '../components/EntityAutocomplete'
+import { OccurrentFields, type OccurrentFact } from '../components/OccurrentFields'
 import { SourcePicker, ensureSource, type SourceDraft } from '../components/SourcePicker'
 import { ValueEditor } from '../components/ValueEditor'
 import { ErrorBox, Field, OkBox, PageHead, SimilarityBar } from '../components/bits'
@@ -157,6 +158,7 @@ function EntityWizard({ typeId, onBack }: { typeId: string; onBack: () => void }
   const queryClient = useQueryClient()
   const [primary, setPrimary] = useState('')
   const [facts, setFacts] = useState<FactDraft[]>([])
+  const [occFacts, setOccFacts] = useState<OccurrentFact[]>([])
   const [source, setSource] = useState<SourceDraft>(wizardSource)
   const [dedup, setDedup] = useState<ResolveResult | null>(null)
   const [result, setResult] = useState<{ id: string; label: string; written: number; rejected: string[] } | null>(null)
@@ -183,9 +185,17 @@ function EntityWizard({ typeId, onBack }: { typeId: string; onBack: () => void }
 
   const create = useMutation({
     mutationFn: async () => {
-      const entity = await api.createEntity({ type_id: typeId, label: primary.trim() })
+      // Label-Cache kappen (bei Post-Texten); das volle Statement bleibt SoT.
+      const entity = await api.createEntity({ type_id: typeId, label: primary.trim().slice(0, 120) })
       // Primär-Bezeichner als echtes Statement (SoT), nicht nur label-Cache.
-      const writes = labelPred ? [stringFact(labelPred.id, primary.trim()), ...facts] : facts
+      const eventFacts: FactDraft[] = occFacts.map((f) => ({
+        ...f, rank: 'normal', confidence: 1, valid_from: null, valid_to: null, qualifiers: [],
+      }))
+      const writes = [
+        ...(labelPred ? [stringFact(labelPred.id, primary.trim())] : []),
+        ...eventFacts,
+        ...facts,
+      ]
       let written = 0
       const rejected: string[] = []
       if (writes.length) {
@@ -199,7 +209,7 @@ function EntityWizard({ typeId, onBack }: { typeId: string; onBack: () => void }
     },
     onSuccess: (r) => {
       setResult(r)
-      setPrimary(''); setFacts([]); setDedup(null)
+      setPrimary(''); setFacts([]); setOccFacts([]); setDedup(null)
       queryClient.invalidateQueries({ queryKey: ['stats'] })
       queryClient.invalidateQueries({ queryKey: ['entities'] })
     },
@@ -252,14 +262,27 @@ function EntityWizard({ typeId, onBack }: { typeId: string; onBack: () => void }
 
       <div className="panel name-field">
         <Field label={primaryLabel}>
-          <input
-            autoFocus
-            value={primary}
-            placeholder={labelPred?.id === 'handle'
-              ? 'z. B. alice_wonderful (ohne @)'
-              : `${primaryLabel} der ${typeLabel}`}
-            onChange={(e) => setPrimary(e.target.value)}
-          />
+          {labelPred?.id === 'text' ? (
+            <textarea
+              autoFocus
+              rows={4}
+              value={primary}
+              placeholder="Der Inhalt des Posts"
+              onChange={(e) => setPrimary(e.target.value)}
+            />
+          ) : (
+            <input
+              autoFocus
+              value={primary}
+              placeholder={labelPred?.id === 'handle'
+                ? 'z. B. alice_wonderful (ohne @)'
+                : kind === 'occurrent'
+                  // Ereignis-Dedup ist embedding-basiert — Jahr/Ort im Namen hilft.
+                  ? `z. B. „${typeLabel} Berlin 2026" — Jahr/Ort hilft beim Wiedererkennen`
+                  : `${primaryLabel} der ${typeLabel}`}
+              onChange={(e) => setPrimary(e.target.value)}
+            />
+          )}
         </Field>
         {candidates.length > 0 && (
           <div className="dedup">
@@ -275,12 +298,17 @@ function EntityWizard({ typeId, onBack }: { typeId: string; onBack: () => void }
         )}
       </div>
 
+      {kind === 'occurrent' && (
+        <OccurrentFields typeId={typeId} exclude={labelPred?.id} onChange={setOccFacts} />
+      )}
       <FactComposer subjectTypeId={typeId} facts={facts} onChange={setFacts} exclude={labelPred?.id} />
       <SourceBar draft={source} onChange={setSource} />
 
       <ErrorBox error={create.error} />
       <button type="submit" className="primary big" disabled={!primary.trim() || create.isPending}>
-        {facts.length > 0 ? `Anlegen · ${facts.length} Fakt${facts.length === 1 ? '' : 'en'}` : 'Anlegen'}
+        {occFacts.length + facts.length > 0
+          ? `Anlegen · ${occFacts.length + facts.length} Fakt${occFacts.length + facts.length === 1 ? '' : 'en'}`
+          : 'Anlegen'}
       </button>
     </form>
   )

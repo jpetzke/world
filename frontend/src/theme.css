@@ -635,3 +635,34 @@ button.primary.big { font-size: 14px; padding: 10px 20px; }
 .icon-btn .icon { width: 17px; height: 17px; }
 .icon-btn.sm { width: 24px; height: 24px; }
 .icon-btn.sm .icon { width: 14px; height: 14px; }
+
+/* --- Entity-Zeitleiste: ◆ Ereignisse + ○ Meilensteine (CSS-Marker) ----- */
+
+.timeline {
+  list-style: none; margin: 0; padding: 0 0 0 7px;
+  border-left: 1px solid var(--line);
+}
+.timeline-item {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 5px 0 5px 14px; position: relative;
+}
+.timeline-marker {
+  position: absolute; left: -6px; top: 50%; translate: 0 -50%;
+  width: 9px; height: 9px; background: var(--bg0);
+}
+.timeline-item.ereignis .timeline-marker {
+  background: var(--occurrent); rotate: 45deg;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--occurrent) 45%, transparent);
+}
+.timeline-item.meilenstein .timeline-marker {
+  border: 1.5px solid var(--text2); border-radius: 50%;
+}
+.timeline-date { flex: 0 0 150px; color: var(--text2); font-size: 12px; font-family: var(--mono); }
+.timeline-body { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.timeline-detail { font-family: var(--mono); font-size: 12px; color: var(--text1); }
+
+/* --- Wann/Wo/Wer-Felder im Ereignis-Wizard ----------------------------- */
+
+.occurrent-fields { border-left: 2px solid var(--occurrent-dim); }
+.occurrent-group + .occurrent-group { margin-top: 12px; }
+.occurrent-fields textarea { min-height: 0; }

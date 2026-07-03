@@ -1,8 +1,8 @@
 import type {
   Entity, EntityListItem, EntityView, GraphSnapshot, PipelineReport,
   Proposals, ResolveResult, SearchHit, SourceDetail, SourceDoc,
-  SourceFileMeta, SourceListItem, Statement, Stats, TraverseNode,
-  ValuePayload, Vocabulary,
+  SourceFileMeta, SourceListItem, Statement, Stats, TimelineItem,
+  TraverseNode, ValuePayload, Vocabulary,
 } from './types'
 
 /** Gate-Rejects (422) tragen eine Problems-Liste — die zeigen wir inline. */
@@ -68,6 +68,7 @@ export const api = {
     req<{ items: EntityListItem[]; total: number }>(`/entities${qs(params)}`),
   entity: (id: string, params?: { system_at?: string; valid_at?: string; include_deprecated?: boolean }) =>
     req<EntityView>(`/entities/${id}${qs(params ?? {})}`),
+  timeline: (id: string) => req<TimelineItem[]>(`/entities/${id}/timeline`),
   createEntity: (body: { type_id: string; label: string }) =>
     req<Entity>('/entities', post(body)),
   resolve: (body: { type_id: string; label?: string; identifiers?: Record<string, string> }) =>

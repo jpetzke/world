@@ -99,6 +99,27 @@ export interface EntityView {
   incoming: Statement[]
 }
 
+/** Eintrag der Entity-Zeitleiste: echtes Ereignis (◆) oder abgeleiteter
+ * Meilenstein (○) aus datetime-Statements bzw. Label-Wechseln. */
+export type TimelineItem =
+  | {
+      kind: 'ereignis'
+      entity_id: string
+      label: string | null
+      type_id: string
+      via: string[]
+      beginn: string | null
+      ende: string | null
+      at: string | null
+    }
+  | {
+      kind: 'meilenstein'
+      predicate_id: string
+      predicate_label: string
+      at: string | null
+      detail: string | null
+    }
+
 export interface SearchHit {
   id: string
   label: string | null

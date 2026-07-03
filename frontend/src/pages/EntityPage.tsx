@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { SearchHit, Statement } from '../api/types'
 import { EntityAutocomplete } from '../components/EntityAutocomplete'
+import { EntityTimeline } from '../components/EntityTimeline'
 import { StatementCard } from '../components/StatementCard'
 import { Empty, ErrorBox, Field, KindBadge, Loading, PageHead } from '../components/bits'
 import { useVocabulary } from '../hooks/useVocabulary'
@@ -29,8 +30,17 @@ export function EntityPage() {
     }),
   })
 
+  // Zeitleiste zeigt nur die aktuelle Sicht — bei Zeitreise ausgeblendet.
+  const timeTravelActive = Boolean(validAt || systemAt || includeDeprecated)
+  const timeline = useQuery({
+    queryKey: ['timeline', id],
+    queryFn: () => api.timeline(id),
+    enabled: !timeTravelActive,
+  })
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['entity', id] })
+    queryClient.invalidateQueries({ queryKey: ['timeline', id] })
     queryClient.invalidateQueries({ queryKey: ['stats'] })
   }
 
@@ -67,7 +77,6 @@ export function EntityPage() {
   if (view.isLoading) return <div className="page"><Loading /></div>
   if (view.error) return <ErrorBox error={view.error} />
   const { entity, incoming } = view.data!
-  const timeTravelActive = validAt || systemAt || includeDeprecated
 
   return (
     <div className="page">
@@ -134,6 +143,13 @@ export function EntityPage() {
           ))}
         </section>
       ))}
+
+      {!timeTravelActive && (timeline.data?.length ?? 0) > 0 && (
+        <section className="stmt-group">
+          <h2>Zeitleiste</h2>
+          <EntityTimeline items={timeline.data!} />
+        </section>
+      )}
 
       {incoming.length > 0 && (
         <section className="stmt-group">
