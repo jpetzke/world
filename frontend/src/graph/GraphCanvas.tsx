@@ -165,18 +165,25 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     })
     cy.on('dbltap', 'node', (e) => onOpenRef.current?.(e.target.id()))
 
-    // Seed: sofortiges Kreis-Layout gibt der Physik einen entzerrten Start
-    // (kein blockierendes Vor-Auskühlen — das fror den Main-Thread ein).
-    cy.layout({ name: 'circle', animate: false }).run()
+    // Seed: gefülltes Raster (überlappungsfrei) startet die Physik schon nah
+    // am Endzustand (gepackte Scheibe) → kaum Nachjustieren, kurzes Setzen.
+    // Ein Kreis-Seed wäre der schlechteste Start (alles am Rand → langes Zappeln).
+    cy.layout({ name: 'grid', avoidOverlap: true, condense: true, animate: false }).run()
+    // Kanten fürs Setzen ausblenden → flüssige Knoten-only-Ticks.
+    cy.edges().addClass('settling')
     // Live-Physik: läuft animiert vom Seed ins Gleichgewicht, bleibt drag-
     // reaktiv (infinite) und stoppt in Ruhe bei alphaMin → 0 CPU.
     const layout = cy.layout(graphLayout(nodes.length))
     layout.run()
-    // Einmal einpassen, sobald sich die Wolke grob gesetzt hat.
-    const fitTimer = setTimeout(() => cyRef.current?.fit(undefined, 40), 900)
+    // Nach dem Setzen: Kanten einschnappen + einpassen (Dauer skaliert mit N).
+    const settleMs = Math.min(2600, 900 + nodes.length * 0.7)
+    const settleTimer = setTimeout(() => {
+      cyRef.current?.edges().removeClass('settling')
+      cyRef.current?.fit(undefined, 40)
+    }, settleMs)
     paint()
     return () => {
-      clearTimeout(fitTimer)
+      clearTimeout(settleTimer)
       layout.stop()
       cy.destroy()
       cyRef.current = null

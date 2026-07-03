@@ -37,8 +37,9 @@ export const graphLayout = (nodeCount: number): cytoscape.LayoutOptions =>
     collideStrength: 0.9,
     velocityDecay: 0.5,
     // Zügig auskühlen → in ~1–2 s in Ruhe (d3 stoppt bei alphaMin, 0 CPU).
-    alphaDecay: 0.06,
-    alphaMin: 0.02,
+    // Höher, weil der Grid-Seed schon nah am Ziel startet (weniger Ticks nötig).
+    alphaDecay: 0.1,
+    alphaMin: 0.05,
   }) as unknown as cytoscape.LayoutOptions
 
 /** Gemeinsamer Look für alle Graph-Ansichten (Nachtarchiv).
@@ -111,6 +112,13 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
       'text-background-opacity': 0.85,
       'text-background-padding': '2px',
     },
+  },
+  // Während des Erst-Setzens ausgeblendet: 1000+ Bézier-Kanten pro Tick zu
+  // zeichnen drückt die FPS; Knoten-only setzt sich flüssig, dann schnappen
+  // die Kanten ein. (Beim Ziehen bleiben Kanten sichtbar — das ist das Lebendige.)
+  {
+    selector: 'edge.settling',
+    style: { display: 'none' },
   },
   // Suchtreffer: goldener Ring, auch wenn nicht im Fokus.
   {
