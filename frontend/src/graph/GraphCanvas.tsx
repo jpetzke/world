@@ -20,6 +20,14 @@ export interface GraphEdge {
   confidence: number
 }
 
+/** Fokus-Overlay: das Ego-Netz eines Suchtreffers, das über das (feststehende)
+    Grundgerüst gelegt wird. anchorId ist der Treffer selbst. */
+export interface GraphOverlay {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  anchorId: string
+}
+
 export interface GraphCanvasHandle {
   /** Zum Knoten schwenken + fokussieren. false = nicht im aktuellen Ausschnitt. */
   focusOn: (id: string) => boolean
@@ -36,15 +44,24 @@ interface Props {
   dimPredicate?: string
   /** Live-Filter: passende Labels leuchten, der Rest tritt zurück. */
   matchText?: string
+  /** Fokus+Kontext: Ego-Netz eines Treffers, wächst aus dem Anker, ohne das
+      Grundgerüst zu bewegen. null = nur Grundgerüst. */
+  overlay?: GraphOverlay | null
   onSelect?: (id: string | null) => void
   onOpen?: (id: string) => void
 }
 
-/** Eine Graph-Engine für alle Ansichten: fCoSE-Layout, Label-LOD und
+/** Eine Graph-Engine für alle Ansichten: d3-force-Layout, Label-LOD und
     Fokus+Kontext (Hover/Klick hebt die Nachbarschaft hervor, dimmt den Rest).
-    Die Pages liefern nur Daten + Toolbar/Seitenpanel drumherum. */
+    Die Pages liefern nur Daten + Toolbar/Seitenpanel drumherum.
+
+    Grundgerüst (nodes/edges) wird einmal gesetzt und danach nicht mehr
+    simuliert. Das optionale overlay legt das Ego-Netz eines Suchtreffers
+    darüber: nur die NEU hinzukommenden Knoten laufen durch eine eigene,
+    kleine Physik — das Grundgerüst ist in keiner laufenden Simulation und
+    steht darum bombenfest, egal wie groß der Gesamtgraph wird. */
 export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(
-  { nodes, edges, kindOf, startId, hiddenKinds, dimPredicate, matchText, onSelect, onOpen },
+  { nodes, edges, kindOf, startId, hiddenKinds, dimPredicate, matchText, overlay, onSelect, onOpen },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -53,39 +70,41 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   const clickRef = useRef<string | null>(null)
 
   // Aktuelle Werte für paint() ohne cy neu aufzubauen (Refs statt Deps).
-  const filters = useRef({ startId, hiddenKinds, dimPredicate, matchText })
-  filters.current = { startId, hiddenKinds, dimPredicate, matchText }
+  const filters = useRef({ startId, hiddenKinds, dimPredicate, matchText, anchorId: overlay?.anchorId })
+  filters.current = { startId, hiddenKinds, dimPredicate, matchText, anchorId: overlay?.anchorId }
   const onSelectRef = useRef(onSelect)
   onSelectRef.current = onSelect
   const onOpenRef = useRef(onOpen)
   onOpenRef.current = onOpen
 
+  // Ein Bauplan für Knoten/Kanten — Grundgerüst UND Overlay nutzen ihn, damit
+  // nachgeladene Ego-Knoten exakt wie die des Gerüsts aussehen.
+  const toNode = useCallback((n: GraphNode): cytoscape.ElementDefinition => {
+    const kind = kindOf(n.type_id) ?? 'continuant'
+    return {
+      data: {
+        id: n.id,
+        label: n.label ?? n.id.slice(0, 8),
+        // Grad → Größe: Hubs fallen auf, sqrt dämpft Ausreißer.
+        size: 18 + Math.round(Math.sqrt(n.degree) * 8),
+        kind,
+      },
+      style: { 'background-color': kindColor(kind), shape: kindShape(kind) },
+    }
+  }, [kindOf])
+  const toEdge = (e: GraphEdge): cytoscape.ElementDefinition => ({
+    data: {
+      id: e.id,
+      source: e.subject_id,
+      target: e.object_id,
+      label: e.predicate_id,
+      confidence: e.confidence,
+    },
+  })
+
   const elements = useMemo<cytoscape.ElementDefinition[]>(
-    () => [
-      ...nodes.map((n) => {
-        const kind = kindOf(n.type_id) ?? 'continuant'
-        return {
-          data: {
-            id: n.id,
-            label: n.label ?? n.id.slice(0, 8),
-            // Grad → Größe: Hubs fallen auf, sqrt dämpft Ausreißer.
-            size: 18 + Math.round(Math.sqrt(n.degree) * 8),
-            kind,
-          },
-          style: { 'background-color': kindColor(kind), shape: kindShape(kind) },
-        }
-      }),
-      ...edges.map((e) => ({
-        data: {
-          id: e.id,
-          source: e.subject_id,
-          target: e.object_id,
-          label: e.predicate_id,
-          confidence: e.confidence,
-        },
-      })),
-    ],
-    [nodes, edges, kindOf],
+    () => [...nodes.map(toNode), ...edges.map(toEdge)],
+    [nodes, edges, toNode],
   )
 
   // Fokus + Kontext + Filter aus einer Hand: eine Quelle der Wahrheit.
@@ -110,7 +129,19 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         return
       }
 
-      // 2) Filtermodus: Kinds ausblenden + Live-Suche.
+      // 2) Suche-Anker aktiv: Ego-Netz leuchtet, Grundgerüst dimmt zum Kontext.
+      //    (.ego wird vom Overlay-Effekt gesetzt — auch auf Gerüst-Knoten, die
+      //    zum Ego-Netz gehören, nicht nur die frisch geladenen.)
+      if (f.anchorId) {
+        const egoN = cy.nodes('.ego')
+        const egoE = egoN.edgesWith(egoN)
+        cy.elements().not(egoN).not(egoE).addClass('faded')
+        egoN.addClass('hl-node')
+        egoE.addClass('hl-edge')
+        cy.$id(f.anchorId).addClass('start-node')
+      }
+
+      // 3) Filtermodus: Kinds ausblenden + Live-Suche (legt sich obendrauf).
       let keepNodes = cy.nodes()
       let filtering = false
       if (hidden.length) {
@@ -129,7 +160,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         })
       }
 
-      // 3) Prädikat hervorheben (dimmen statt verstecken — die Welt bleibt da).
+      // 4) Prädikat hervorheben (dimmen statt verstecken — die Welt bleibt da).
       if (f.dimPredicate) {
         const lit = cy.edges().filter((e) => e.data('label') === f.dimPredicate)
         cy.edges().not(lit).addClass('faded')
@@ -139,7 +170,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     })
   }, [])
 
-  // cy nur neu aufbauen, wenn sich die Daten ändern.
+  // cy nur neu aufbauen, wenn sich die Grundgerüst-Daten ändern.
   useEffect(() => {
     if (!containerRef.current) return
     const cy = cytoscape({
@@ -191,11 +222,68 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elements, paint])
 
+  // Overlay (Ego-Netz eines Treffers) einblenden: nur NEUE Knoten hinzufügen +
+  // in einer eigenen kleinen Simulation aus dem Anker herauswachsen lassen. Das
+  // Grundgerüst ist nicht Teil dieser Simulation und bewegt sich darum nicht.
+  useEffect(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    cy.batch(() => {
+      cy.remove(cy.elements('.overlay'))
+      cy.nodes().removeClass('ego')
+    })
+    if (!overlay) { paint(); return }
+
+    const anchorNode = cy.$id(overlay.anchorId)
+    const ext = cy.extent()
+    const seed = anchorNode.nonempty()
+      ? anchorNode.position()
+      : { x: (ext.x1 + ext.x2) / 2, y: (ext.y1 + ext.y2) / 2 }
+
+    // Knoten: schon vorhandene (Gerüst-Hubs im Ego-Netz) nur markieren, neue
+    // nahe am Anker geseedet hinzufügen (so fliegen sie nicht vom Ursprung ein).
+    const newNodes: cytoscape.ElementDefinition[] = []
+    for (const n of overlay.nodes) {
+      const existing = cy.$id(n.id)
+      if (existing.nonempty()) { existing.addClass('ego'); continue }
+      const el = toNode(n)
+      newNodes.push({
+        group: 'nodes',
+        data: el.data,
+        style: el.style,
+        classes: 'overlay ego',
+        position: { x: seed.x + (Math.random() - 0.5) * 80, y: seed.y + (Math.random() - 0.5) * 80 },
+      })
+    }
+    const newEdges: cytoscape.ElementDefinition[] = overlay.edges
+      .filter((e) => cy.$id(e.id).empty())
+      .map((e) => ({ group: 'edges' as const, data: toEdge(e).data, classes: 'overlay' }))
+
+    cy.add(newNodes)
+    cy.add(newEdges)
+
+    // Eigene Physik nur für die frisch geladenen Knoten (+ Kanten zwischen
+    // ihnen). infinite:false → setzt sich und stoppt; fit:false → kein Schwenk.
+    const added = cy.nodes('.overlay')
+    if (added.nonempty()) {
+      const layout = added.union(added.edgesWith(added)).layout({
+        ...(graphLayout(added.length) as unknown as Record<string, unknown>),
+        infinite: false,
+        fit: false,
+      } as unknown as cytoscape.LayoutOptions)
+      layout.run()
+    }
+    const focusNode = cy.$id(overlay.anchorId)
+    if (focusNode.nonempty()) cy.animate({ center: { eles: focusNode }, duration: 350 })
+    paint()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlay, paint])
+
   // Filter/Anker-Props ändern → nur neu einfärben (primitive Deps).
   useEffect(() => {
     paint()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startId, hiddenKinds?.join(','), dimPredicate, matchText, paint])
+  }, [startId, hiddenKinds?.join(','), dimPredicate, matchText, overlay?.anchorId, paint])
 
   useImperativeHandle(ref, () => ({
     focusOn(id) {

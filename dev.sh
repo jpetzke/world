@@ -73,7 +73,7 @@ db_up() {
 cmd_start() {
   db_up
   echo "syncing backend deps…"; uv sync --quiet
-  [ -d "$ROOT/frontend/node_modules" ] || { echo "installing frontend deps…"; npm --prefix "$ROOT/frontend" install; }
+  echo "syncing frontend deps…"; npm --prefix "$ROOT/frontend" install --silent
   # migrations run automatically on api startup (src/weltmodell/api.py)
   start_service backend  uv run uvicorn weltmodell.api:app --port "$API_PORT" --reload --reload-dir src
   start_service frontend npm --prefix "$ROOT/frontend" run dev

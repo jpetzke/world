@@ -9,15 +9,24 @@ import { GraphCanvas, type GraphCanvasHandle } from '../graph/GraphCanvas'
 import { NODE_COLORS } from '../graph/style'
 import { useVocabulary } from '../hooks/useVocabulary'
 
-/** Home: das ganze Weltmodell als Graph. Suche springt zum Knoten und hebt
-    seine Nachbarschaft hervor; Tippen leuchtet Treffer live; Filter dimmen
-    statt zu verstecken — die Welt bleibt sichtbar. */
+// Default zeigt nur das repräsentative Grundgerüst (Top-Hubs nach Grad) —
+// wenige Knoten, flüssige Physik. Suche lädt das Ego-Netz eines Treffers nach
+// (Fokus+Kontext), ohne das Grundgerüst zu bewegen.
+const BACKBONE_N = 120
+const EGO_MAX = 150
+const DEPTH_DEFAULT = 2
+
+/** Home: das repräsentative Grundgerüst des Weltmodells als Graph. Suche legt
+    das Ego-Netz eines Treffers (einstellbare Tiefe) als Fokus darüber und dimmt
+    das Grundgerüst zum Kontext; Filter dimmen statt zu verstecken. */
 export function GraphHome() {
   const navigate = useNavigate()
   const { helpers } = useVocabulary()
   const canvasRef = useRef<GraphCanvasHandle>(null)
 
   const [selected, setSelected] = useState<string | null>(null)
+  const [anchor, setAnchor] = useState<string | null>(null)
+  const [depth, setDepth] = useState(DEPTH_DEFAULT)
   const [query, setQuery] = useState('')
   const [kindFilter, setKindFilter] = useState<Record<Kind, boolean>>({
     continuant: true,
@@ -25,17 +34,30 @@ export function GraphHome() {
   })
   const [predicateFilter, setPredicateFilter] = useState<string>('')
 
-  const graph = useQuery({ queryKey: ['graph'], queryFn: () => api.graph(600) })
+  const graph = useQuery({ queryKey: ['graph'], queryFn: () => api.graph(BACKBONE_N) })
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const selectedView = useQuery({
     queryKey: ['entity', selected, 'panel'],
     queryFn: () => api.entity(selected!),
     enabled: !!selected,
   })
+  // Fokus+Kontext: Ego-Netz des Treffers (bis Tiefe `depth`) wird nachgeladen.
+  const ego = useQuery({
+    queryKey: ['ego', anchor, depth],
+    queryFn: () => api.traverse({ start_id: anchor!, max_depth: depth, max_nodes: EGO_MAX }),
+    enabled: !!anchor,
+  })
+  const overlay = useMemo(
+    () => (anchor && ego.data
+      ? { nodes: ego.data.nodes, edges: ego.data.edges, anchorId: ego.data.start_id }
+      : null),
+    [anchor, ego.data],
+  )
 
   const predicatesInGraph = useMemo(
-    () => [...new Set((graph.data?.edges ?? []).map((e) => e.predicate_id))].sort(),
-    [graph.data],
+    () => [...new Set([...(graph.data?.edges ?? []), ...(ego.data?.edges ?? [])]
+      .map((e) => e.predicate_id))].sort(),
+    [graph.data, ego.data],
   )
   const hiddenKinds = useMemo(
     () => (Object.entries(kindFilter) as [Kind, boolean][])
@@ -53,8 +75,10 @@ export function GraphHome() {
   const results = query.trim().length >= 2 ? (search.data ?? []).slice(0, 8) : []
 
   const spotlight = (id: string) => {
-    // Erst im Ausschnitt anspringen; sonst zur Entity-Seite (außerhalb Snapshot).
-    if (!canvasRef.current?.focusOn(id)) navigate(`/entity/${id}`)
+    // Treffer wird zum Anker: sein Ego-Netz lädt nach (Fokus+Kontext), der
+    // Graph zentriert darauf — kein Wegspringen mehr aus dem Graphen.
+    setAnchor(id)
+    setSelected(id)
   }
 
   const { active, listRef, onKeyDown } = useOptionNav(
@@ -113,13 +137,34 @@ export function GraphHome() {
           {predicatesInGraph.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
 
+        {anchor && (
+          <label className="chip" style={{ cursor: 'pointer' }} title="Tiefe der geladenen Nachbarschaft">
+            Tiefe {depth}
+            <input
+              type="range" min={1} max={3} value={depth}
+              style={{ width: 90, marginLeft: 8, cursor: 'pointer' }}
+              onChange={(e) => setDepth(Number(e.target.value))}
+              aria-label="Tiefe der Nachbarschaft"
+            />
+          </label>
+        )}
+
         <button type="button" className="ghost" onClick={() => canvasRef.current?.fit()}>
           Einpassen
         </button>
+        {anchor && (
+          <button type="button" className="ghost" onClick={() => { setAnchor(null); setSelected(null) }}>
+            Fokus lösen
+          </button>
+        )}
 
         <span className="mono small muted" style={{ marginLeft: 'auto' }}>
-          {graph.data?.nodes.length ?? 0}/{graph.data?.total_nodes ?? 0} Knoten ·{' '}
-          {graph.data?.edges.length ?? 0} Kanten · {stats.data?.statements ?? '–'} Statements
+          {graph.data?.nodes.length ?? 0} Gerüst
+          {anchor && ego.data && (
+            <> · {ego.data.nodes.length} Umfeld
+              {ego.data.total_nodes > ego.data.nodes.length ? ` (von ${ego.data.total_nodes})` : ''}</>
+          )}
+          {' · '}{graph.data?.total_nodes ?? 0} Welt · {stats.data?.statements ?? '–'} Statements
         </span>
       </div>
 
@@ -133,6 +178,7 @@ export function GraphHome() {
             hiddenKinds={hiddenKinds}
             dimPredicate={predicateFilter || undefined}
             matchText={query.trim().length >= 2 ? query : undefined}
+            overlay={overlay}
             onSelect={setSelected}
             onOpen={(id) => navigate(`/entity/${id}`)}
           />
@@ -143,8 +189,9 @@ export function GraphHome() {
           {!selected && (
             <div className="stack">
               <p className="muted small" style={{ margin: 0 }}>
-                Das ganze Weltmodell. Hover: Nachbarschaft · Klick: Details ·
-                Doppelklick: Entity-Seite.
+                Repräsentatives Grundgerüst (Top-Hubs). Suche lädt das Umfeld
+                eines Treffers nach — Tiefe per Slider. Hover: Nachbarschaft ·
+                Klick: Details · Doppelklick: Entity-Seite.
               </p>
               {graph.data?.nodes.length === 0 && (
                 <p className="small">
