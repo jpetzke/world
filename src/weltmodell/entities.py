@@ -18,12 +18,13 @@ def create_entity(
     label: str | None = None,
     embed_text: str | None = None,
 ) -> dict:
-    if get_type(conn, type_id) is None:
+    type_row = get_type(conn, type_id)
+    if type_row is None:
         raise ValidationError(
             f"Unbekannter Typ '{type_id}' — neue Typen nur durchs Gate (§7.1)"
         )
-    if type_id in ("Continuant", "Occurrent"):
-        raise ValidationError("Wurzeltypen sind abstrakt — konkreten Subtyp wählen")
+    if type_row["abstract"]:
+        raise ValidationError(f"Typ '{type_id}' ist abstrakt — konkreten Subtyp wählen")
     embedding = None
     text = embed_text or label
     if text:
