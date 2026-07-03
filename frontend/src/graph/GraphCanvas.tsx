@@ -85,8 +85,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       data: {
         id: n.id,
         label: n.label ?? n.id.slice(0, 8),
-        // Grad → Größe: Hubs fallen auf, sqrt dämpft Ausreißer.
-        size: 18 + Math.round(Math.sqrt(n.degree) * 8),
+        // Grad → Größe: Hubs fallen auf, sqrt dämpft Ausreißer, Deckel hält
+        // Hubs handhabbar (sonst fressen sie den halben Canvas + kollidieren).
+        size: Math.min(56, 12 + Math.round(Math.sqrt(n.degree) * 4)),
         kind,
       },
       style: { 'background-color': kindColor(kind), shape: kindShape(kind) },

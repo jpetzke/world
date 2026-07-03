@@ -30,11 +30,17 @@ export const graphLayout = (nodeCount: number): cytoscape.LayoutOptions =>
     randomize: false,
     fixedAfterDragging: false,
     linkId: (d: { id: string }) => d.id,
-    linkDistance: 80,
-    linkStrength: 0.4,
-    manyBodyStrength: nodeCount > 1500 ? -80 : -160,
-    collideRadius: (d: { size?: number }) => (d.size ?? 20) / 2 + 7,
-    collideStrength: 0.9,
+    // Kantenlänge = beide Radien + fester Luftspalt. Fixe 80px zogen große Hubs
+    // ineinander (Summe der Radien > 80) — jetzt bleibt immer Abstand.
+    linkDistance: (d: { source: { size?: number }; target: { size?: number } }) =>
+      (d.source.size ?? 20) / 2 + (d.target.size ?? 20) / 2 + 55,
+    linkStrength: 0.25,
+    manyBodyStrength: nodeCount > 1500 ? -140 : -320,
+    // Kollisions-Radius = Knoten-Radius + Rand; strength 1 + 2 Iterationen
+    // trennen hart, damit nichts aneinander klebt (auch nicht unter Kantenzug).
+    collideRadius: (d: { size?: number }) => (d.size ?? 20) / 2 + 14,
+    collideStrength: 1,
+    collideIterations: 2,
     velocityDecay: 0.5,
     // Zügig auskühlen → in ~1–2 s in Ruhe (d3 stoppt bei alphaMin, 0 CPU).
     // Höher, weil der Grid-Seed schon nah am Ziel startet (weniger Ticks nötig).
