@@ -86,6 +86,100 @@ def entity_view(
     return {"entity": entity, "statements": outgoing, "incoming": incoming}
 
 
+def entity_timeline(conn: psycopg.Connection, entity_id: str) -> list[dict[str, Any]]:
+    """Zeitleiste einer Entity (aktuelle Sicht): echte Ereignisse + abgeleitete
+    Meilensteine.
+
+    - ereignis:    Occurrent-Entities, die diese Entity per Entity-Statement
+                   referenzieren (◆, klickbar), mit beginn/ende.
+    - meilenstein: eigene datetime-Statements (erstellt_am, veröffentlicht_am, …)
+                   sowie Wechsel des Label-Prädikats (z. B. Handle) aus der
+                   Supersession-Historie — Ereignisse ohne Entity (§4).
+    """
+    entity_id = canonical_id(conn, entity_id)
+    entity = get_entity(conn, entity_id)
+    items: list[dict[str, Any]] = []
+
+    events = conn.execute(
+        """SELECT subj.id, subj.label, subj.type_id,
+                  array_agg(DISTINCT s.predicate_id) AS via,
+                  (SELECT b.value_datetime FROM statement b
+                   WHERE b.subject_id = subj.id AND b.predicate_id = 'beginn'
+                     AND b.system_to IS NULL AND b.rank <> 'deprecated'
+                   LIMIT 1) AS beginn,
+                  (SELECT b.value_datetime FROM statement b
+                   WHERE b.subject_id = subj.id AND b.predicate_id = 'ende'
+                     AND b.system_to IS NULL AND b.rank <> 'deprecated'
+                   LIMIT 1) AS ende
+           FROM statement s
+           JOIN entity subj ON subj.id = s.subject_id AND subj.merged_into IS NULL
+           JOIN entity_type t ON t.id = subj.type_id AND t.kind = 'occurrent'
+           WHERE s.object_id = %(id)s AND s.value_type = 'entity'
+             AND s.system_to IS NULL AND s.rank <> 'deprecated'
+           GROUP BY subj.id, subj.label, subj.type_id""",
+        {"id": entity_id},
+    ).fetchall()
+    for r in events:
+        items.append({
+            "kind": "ereignis",
+            "entity_id": str(r["id"]),
+            "label": r["label"],
+            "type_id": r["type_id"],
+            "via": list(r["via"]),
+            "beginn": r["beginn"],
+            "ende": r["ende"],
+            "at": r["beginn"],
+        })
+
+    milestones = conn.execute(
+        """SELECT s.predicate_id, p.label AS predicate_label, s.value_datetime
+           FROM statement s JOIN predicate p ON p.id = s.predicate_id
+           WHERE s.subject_id = %(id)s AND s.value_type = 'datetime'
+             AND s.system_to IS NULL AND s.rank <> 'deprecated'""",
+        {"id": entity_id},
+    ).fetchall()
+    for r in milestones:
+        items.append({
+            "kind": "meilenstein",
+            "predicate_id": r["predicate_id"],
+            "predicate_label": r["predicate_label"],
+            "at": r["value_datetime"],
+            "detail": None,
+        })
+
+    label_pred = conn.execute(
+        "SELECT label_predicate FROM entity_type WHERE id = %s",
+        (entity["type_id"],),
+    ).fetchone()["label_predicate"]
+    if label_pred:
+        # Supersession legt eine offene rank='deprecated'-Kopie an — ohne den
+        # Filter erschiene jeder Wechsel doppelt.
+        history = conn.execute(
+            """SELECT value_text, system_from FROM statement
+               WHERE subject_id = %(id)s AND predicate_id = %(pred)s
+                 AND rank <> 'deprecated'
+               ORDER BY system_from""",
+            {"id": entity_id, "pred": label_pred},
+        ).fetchall()
+        if len(history) > 1:
+            pred_label = conn.execute(
+                "SELECT label FROM predicate WHERE id = %s", (label_pred,)
+            ).fetchone()["label"]
+            for prev, cur in zip(history, history[1:]):
+                if prev["value_text"] != cur["value_text"]:
+                    items.append({
+                        "kind": "meilenstein",
+                        "predicate_id": label_pred,
+                        "predicate_label": pred_label,
+                        "at": cur["system_from"],
+                        "detail": f"{prev['value_text']} → {cur['value_text']}",
+                    })
+
+    dated = sorted((i for i in items if i["at"] is not None), key=lambda i: i["at"])
+    undated = [i for i in items if i["at"] is None]
+    return dated + undated
+
+
 def traverse(
     conn: psycopg.Connection,
     start_id: str,

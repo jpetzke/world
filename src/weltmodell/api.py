@@ -244,6 +244,11 @@ def get_entity_view(
     )
 
 
+@router.get("/entities/{entity_id}/timeline")
+def get_entity_timeline(entity_id: str, conn=Depends(db)):
+    return queries.entity_timeline(conn, entity_id)
+
+
 @router.post("/entities/{entity_id}/merge")
 def post_merge(entity_id: str, payload: MergePayload, conn=Depends(db)):
     return resolution.merge_entity(conn, entity_id, payload.target_id)
