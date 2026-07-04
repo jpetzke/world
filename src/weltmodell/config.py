@@ -46,6 +46,16 @@ def is_prod() -> bool:
     return os.environ.get("WELTMODELL_ENV", "development").lower() == "production"
 
 
+def get_public_url() -> str:
+    """Öffentliche Basis-URL (OAuth-Issuer + MCP-Resource), ohne Trailing-Slash.
+
+    In Produktion die externe Domain setzen (z. B. https://world.jshift.de) —
+    daraus entstehen die absoluten URLs in der OAuth-Metadata und die
+    erlaubten Hosts der DNS-Rebinding-Protection.
+    """
+    return os.environ.get("PUBLIC_URL", "http://localhost:8100").rstrip("/")
+
+
 def get_auth_username() -> str | None:
     return os.environ.get("AUTH_USERNAME")
 

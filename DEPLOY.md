@@ -56,3 +56,19 @@ Coolify-Scheduled-Backup auf den `db`-Service oder manuell:
   `nosniff`, `Referrer-Policy: no-referrer`.
 - `/docs`/OpenAPI in Prod aus. Container-Port nur `expose` (nicht auf den Host
   gemappt) → nur Traefik erreicht die App.
+
+## MCP-Server (AI-Agenten-Zugang)
+
+- Endpunkt: `https://world.jshift.de/mcp` (Streamable HTTP, stateless, JSON).
+  In claude.ai / Claude Code als Custom Connector mit genau dieser URL
+  eintragen — OAuth-Discovery, Registrierung (DCR) und PKCE laufen automatisch.
+- **`PUBLIC_URL` muss in Coolify gesetzt sein** (`https://world.jshift.de`):
+  daraus entstehen Issuer-/Metadata-URLs und die erlaubten Hosts der
+  DNS-Rebinding-Protection (falscher Host ⇒ 421).
+- Login beim Verbinden: dieselben `AUTH_USERNAME`/`AUTH_PASSWORD` wie die Web-UI
+  (eigene Seite unter `/oauth/login`, gleicher Brute-Force-Lockout).
+- Tokens sind opak (`welt_at_…`), nur als SHA-256-Hash in Postgres
+  (`mcp_token`); Access 4 h, Refresh 60 Tage mit Rotation. Zugriff entziehen:
+  `DELETE FROM mcp_token;` (Clients holen sich per Re-Auth neue).
+- Schreib-Tools sind serverseitig gesperrt, bis der Agent pro Sitzung einmal
+  `welt_constitution` gelesen hat (Verfassungs-Gate, `constitution.md`).

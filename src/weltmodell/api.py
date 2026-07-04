@@ -11,13 +11,14 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, files, follower_import, pipeline, queries, registry, resolution, statements
+from . import auth, files, follower_import, mcp_auth, pipeline, queries, registry, resolution, statements
 from .auth import require_auth
-from .config import get_session_secret, is_prod
+from .config import get_public_url, get_session_secret, is_prod
+from .mcp_server import McpPathDispatch, build_mcp_asgi, mcp
 from .db import get_conn, run_migrations
 from .entities import create_entity, get_entity
 from .errors import NotFoundError, RegistryError, ValidationError
@@ -45,10 +46,34 @@ _CSP = "; ".join(
 )
 
 
+# Starlette startet Lifespans von Sub-Apps nie — der MCP-Session-Manager muss
+# vom Parent-Lifespan getrieben werden (sonst 500 "Task group is not
+# initialized" auf /mcp). Dessen .run() ist single-use und die Sub-App bindet
+# die Manager-Instanz fest; damit mehrere Lifespans pro Prozess funktionieren
+# (Tests mit mehreren TestClients), zählt ein Refcount verschachtelte Starts
+# und baut Manager + Sub-App bei einem echten Neustart frisch auf.
+_mcp_lifespans = 0
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    global _mcp_lifespans
     run_migrations()
-    yield
+    if _mcp_lifespans:
+        _mcp_lifespans += 1
+        try:
+            yield
+        finally:
+            _mcp_lifespans -= 1
+        return
+    mcp._session_manager = None  # SDK erlaubt kein zweites .run() derselben Instanz
+    _dispatch.mcp_asgi = build_mcp_asgi()
+    _mcp_lifespans += 1
+    try:
+        async with mcp.session_manager.run():
+            yield
+    finally:
+        _mcp_lifespans -= 1
 
 
 # Docs/OpenAPI in Prod aus — kein unnötiges Aufdecken der API-Fläche.
@@ -506,6 +531,17 @@ def post_ingest(payload: IngestPayload, conn=Depends(db)):
 app.include_router(auth.router, prefix="/api")
 app.include_router(router, prefix="/api", dependencies=[Depends(require_auth)])
 
+# MCP-OAuth-Login (eigene Credential-Seite, kein /api-Prefix, keine Session
+# nötig — authentifiziert wird im Formular selbst, mit demselben Lockout).
+app.include_router(mcp_auth.login_router)
+
+
+@app.api_route("/mcp/", methods=["GET", "POST", "DELETE"], include_in_schema=False)
+def mcp_trailing_slash():
+    # Absolute URL: ein relativer Redirect würde hinter dem Proxy auf http://
+    # heruntergestuft und von MCP-Clients verweigert.
+    return RedirectResponse(f"{get_public_url()}/mcp", status_code=307)
+
 if FRONTEND_DIST.exists():
 
     @app.get("/{path:path}", include_in_schema=False)
@@ -520,3 +556,13 @@ if FRONTEND_DIST.exists():
         ):
             return FileResponse(candidate)
         return FileResponse(FRONTEND_DIST / "index.html")
+
+
+# --- MCP: ASGI-Weiche vor der FastAPI-App -------------------------------------
+# /mcp + OAuth-Protokoll-Pfade gehen an die MCP-Sub-App (eigene Bearer-Auth,
+# bewusst OHNE die SPA-CSP/Session-Middleware), alles andere an FastAPI.
+# uvicorn/Tests zeigen weiter auf `app`.
+
+api_app = app
+_dispatch = McpPathDispatch(api_app, build_mcp_asgi())
+app = _dispatch
