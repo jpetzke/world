@@ -74,6 +74,9 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
     selector: 'node',
     style: {
       label: 'data(label)',
+      // Label gehört zur Hitbox: Hover/Klick/Doppelklick auch auf dem Text —
+      // kleine Knoten bleiben trotzdem gut treffbar.
+      'text-events': 'yes',
       color: TEXT_DIM,
       'font-size': 10,
       'font-family': 'IBM Plex Mono, monospace',
@@ -89,9 +92,14 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
       'text-outline-opacity': 0.9,
       width: 'data(size)',
       height: 'data(size)',
-      'transition-property': 'opacity, border-width, underlay-opacity',
+      // Unsichtbarer Außenrand = größere Hitbox (Hover/Klick greifen schon
+      // kurz neben dem Körper). Fokus-Ringe laufen über outline-*, damit sie
+      // diese Hit-Zone nie verändern (sonst Flicker an der Kante).
+      'border-width': 6,
+      'border-opacity': 0,
+      'transition-property': 'opacity, outline-width, underlay-opacity',
       'transition-duration': 160,
-    },
+    } as unknown as cytoscape.Css.Node,
   },
   {
     selector: 'edge',
@@ -117,7 +125,10 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   // Startknoten der Ego-Sicht: klar als Anker erkennbar.
   {
     selector: 'node.start-node',
-    style: { 'border-width': 3, 'border-color': GOLD, 'underlay-opacity': 0.34 },
+    style: {
+      'outline-width': 3, 'outline-color': GOLD, 'outline-offset': 1,
+      'underlay-opacity': 0.34,
+    } as unknown as cytoscape.Css.Node,
   },
   // Fokus + Kontext: Nachbarschaft leuchtet, der Rest tritt zurück.
   {
@@ -127,11 +138,10 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   {
     selector: 'node.hl-node',
     style: {
-      'border-width': 2,
-      'border-color': TEXT_BRIGHT,
+      'outline-width': 2, 'outline-color': TEXT_BRIGHT, 'outline-offset': 1,
       color: TEXT_BRIGHT,
       'underlay-opacity': 0.34,
-    },
+    } as unknown as cytoscape.Css.Node,
   },
   {
     selector: 'edge.hl-edge',
@@ -162,11 +172,17 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   // Suchtreffer: goldener Ring, auch wenn nicht im Fokus.
   {
     selector: 'node.match',
-    style: { 'border-width': 3, 'border-color': GOLD, 'underlay-opacity': 0.34 },
+    style: {
+      'outline-width': 3, 'outline-color': GOLD, 'outline-offset': 1,
+      'underlay-opacity': 0.34,
+    } as unknown as cytoscape.Css.Node,
   },
   {
     selector: 'node:selected',
-    style: { 'border-width': 3, 'border-color': TEXT_BRIGHT, 'underlay-opacity': 0.34 },
+    style: {
+      'outline-width': 3, 'outline-color': TEXT_BRIGHT, 'outline-offset': 1,
+      'underlay-opacity': 0.34,
+    } as unknown as cytoscape.Css.Node,
   },
 ]
 
