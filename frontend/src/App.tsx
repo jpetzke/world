@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { api, setUnauthorizedHandler } from './api/client'
 import { Loading } from './components/bits'
+import { ApiKeysPage } from './pages/ApiKeysPage'
 import { CreatePage } from './pages/CreatePage'
 import { Dashboard } from './pages/Dashboard'
 import { EntityPage } from './pages/EntityPage'
@@ -70,6 +71,7 @@ function Shell({ username }: { username: string }) {
             Gate {pending > 0 && <span className="badge">{pending}</span>}
           </NavLink>
           <NavLink to="/sources">Quellen</NavLink>
+          <NavLink to="/keys">API-Keys</NavLink>
         </div>
         <div className="nav-footer">
           <span className="muted small mono">{username}</span>
@@ -88,6 +90,7 @@ function Shell({ username }: { username: string }) {
           <Route path="/gate" element={<GatePage />} />
           <Route path="/sources" element={<SourcesPage />} />
           <Route path="/sources/:id" element={<SourceDetailPage />} />
+          <Route path="/keys" element={<ApiKeysPage />} />
         </Routes>
       </main>
     </div>

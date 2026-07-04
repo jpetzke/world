@@ -81,6 +81,12 @@ Registry, Gate, Quellen + manueller Ingest. Produktion: FastAPI liefert
 | `POST /resolve`, `POST /entities/{id}/merge` | Dedup-Stufen; verlustfreier Merge |
 | `GET /registry/...`, `POST /registry/proposals/...` | Vokabular lesen; Gate (propose/approve/reject) |
 | `GET /search`, `POST /query/traverse` | pgvector-Suche; Multi-Hop-Traverse |
+| `GET/POST /keys`, `POST /keys/{id}/rotate`, `DELETE /keys/{id}` | API-Key-Verwaltung (nur Session, UI-Seite „API-Keys") |
+
+**Zugriff:** Session-Login (UI) hat Vollzugriff. Externe Automationen (n8n & Co.)
+authentifizieren per `Authorization: Bearer <key>` oder `X-API-Key`-Header;
+Keys entstehen in der UI und tragen einen hierarchischen Scope —
+`read` (Abfragen) < `write` (+ Substrat-Writes) < `admin` (+ Gate/Vokabular, alles).
 
 ## Bewusst später (§13, kein Redesign nötig)
 

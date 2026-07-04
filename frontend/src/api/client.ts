@@ -1,9 +1,9 @@
 import type {
-  Entity, EntityListItem, EntityView, FollowerListCommitResult,
-  FollowerListPreview, FollowerRowIn, GraphSnapshot, Neighborhood,
-  PipelineReport, Proposals, ResolveResult, SearchHit, SourceDetail,
-  SourceDoc, SourceFileMeta, SourceListItem, Statement, Stats, TimelineItem,
-  ValuePayload, Vocabulary,
+  ApiKey, ApiKeyScope, Entity, EntityListItem, EntityView,
+  FollowerListCommitResult, FollowerListPreview, FollowerRowIn, GraphSnapshot,
+  Neighborhood, PipelineReport, Proposals, ResolveResult, SearchHit,
+  SourceDetail, SourceDoc, SourceFileMeta, SourceListItem, Statement, Stats,
+  TimelineItem, ValuePayload, Vocabulary,
 } from './types'
 
 /** Gate-Rejects (422) tragen eine Problems-Liste — die zeigen wir inline. */
@@ -45,6 +45,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
     throw new ApiError(res.status, detail)
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 
@@ -151,4 +152,11 @@ export const api = {
     url?: string
     extractor: string
   }) => req<{ source: SourceDoc; pipeline: PipelineReport | null }>('/ingest', post(body)),
+
+  keys: {
+    list: () => req<ApiKey[]>('/keys'),
+    create: (name: string, scope: ApiKeyScope) => req<ApiKey>('/keys', post({ name, scope })),
+    rotate: (id: string) => req<ApiKey>(`/keys/${id}/rotate`, post({})),
+    remove: (id: string) => req<void>(`/keys/${id}`, { method: 'DELETE' }),
+  },
 }

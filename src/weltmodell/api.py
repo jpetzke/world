@@ -8,6 +8,7 @@ LLM-Writes gleichermaßen (Invariante 2).
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,11 +16,11 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, files, follower_import, mcp_auth, pipeline, queries, registry, resolution, statements
-from .auth import require_auth
+from . import api_keys, auth, files, follower_import, mcp_auth, pipeline, queries, registry, resolution, statements
+from .auth import require_auth, require_scope
 from .config import get_public_url, get_session_secret, is_prod
 from .mcp_server import McpPathDispatch, build_mcp_asgi, mcp
-from .db import get_conn, run_migrations
+from .db import db, get_conn, run_migrations
 from .entities import create_entity, get_entity
 from .errors import NotFoundError, RegistryError, ValidationError
 
@@ -131,19 +132,13 @@ def healthz():
         conn.close()
 
 
-router = APIRouter()
-
-
-def db():
-    conn = get_conn()
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+# Drei Router nach Scope (read < write < admin, Hierarchie im Gate) plus
+# ein sessiongebundener für die Key-Verwaltung — ein API-Key kann keine
+# Keys erzeugen, anzeigen oder rotieren.
+read_router = APIRouter()
+write_router = APIRouter()
+admin_router = APIRouter()
+keys_router = APIRouter()
 
 
 @app.exception_handler(ValidationError)
@@ -273,77 +268,82 @@ class IngestPayload(BaseModel):
     extractor: str = "rule-based"  # 'rule-based' | 'llm' (OpenRouter)
 
 
+class ApiKeyCreate(BaseModel):
+    name: str
+    scope: Literal["read", "write", "admin"]
+
+
 # --- Endpoints ---------------------------------------------------------------
 
 
-@router.get("/health")
+@read_router.get("/health")
 def health(conn=Depends(db)):
     conn.execute("SELECT 1")
     return {"status": "ok"}
 
 
-@router.get("/registry/types")
+@read_router.get("/registry/types")
 def get_types(conn=Depends(db)):
     return registry.list_types(conn)
 
 
-@router.get("/registry/interfaces")
+@read_router.get("/registry/interfaces")
 def get_interfaces(conn=Depends(db)):
     return registry.list_interfaces(conn)
 
 
-@router.get("/registry/predicates")
+@read_router.get("/registry/predicates")
 def get_predicates(conn=Depends(db)):
     return registry.list_predicates(conn)
 
 
-@router.get("/registry/vocabulary")
+@read_router.get("/registry/vocabulary")
 def get_vocabulary(conn=Depends(db)):
     """Das erlaubte Vokabular für LLM-Extraktoren (§7.1)."""
     return registry.vocabulary(conn)
 
 
-@router.get("/registry/proposals")
+@read_router.get("/registry/proposals")
 def get_proposals(status: str = "pending", conn=Depends(db)):
     return registry.list_proposals(conn, status)
 
 
-@router.post("/registry/proposals/types", status_code=201)
+@admin_router.post("/registry/proposals/types", status_code=201)
 def post_type_proposal(payload: TypeProposal, conn=Depends(db)):
     return registry.propose_type(conn, **payload.model_dump())
 
 
-@router.post("/registry/proposals/predicates", status_code=201)
+@admin_router.post("/registry/proposals/predicates", status_code=201)
 def post_predicate_proposal(payload: PredicateProposal, conn=Depends(db)):
     return registry.propose_predicate(conn, **payload.model_dump())
 
 
-@router.post("/registry/proposals/types/{proposal_id}/approve")
+@admin_router.post("/registry/proposals/types/{proposal_id}/approve")
 def approve_type(proposal_id: str, conn=Depends(db)):
     return registry.approve_type(conn, proposal_id)
 
 
-@router.post("/registry/proposals/predicates/{proposal_id}/approve")
+@admin_router.post("/registry/proposals/predicates/{proposal_id}/approve")
 def approve_predicate(proposal_id: str, conn=Depends(db)):
     return registry.approve_predicate(conn, proposal_id)
 
 
-@router.post("/registry/proposals/types/{proposal_id}/reject")
+@admin_router.post("/registry/proposals/types/{proposal_id}/reject")
 def reject_type(proposal_id: str, conn=Depends(db)):
     return registry.reject_proposal(conn, "proposed_type", proposal_id)
 
 
-@router.post("/registry/proposals/predicates/{proposal_id}/reject")
+@admin_router.post("/registry/proposals/predicates/{proposal_id}/reject")
 def reject_predicate(proposal_id: str, conn=Depends(db)):
     return registry.reject_proposal(conn, "proposed_predicate", proposal_id)
 
 
-@router.post("/entities", status_code=201)
+@write_router.post("/entities", status_code=201)
 def post_entity(payload: EntityCreate, conn=Depends(db)):
     return create_entity(conn, **payload.model_dump())
 
 
-@router.get("/entities/{entity_id}")
+@read_router.get("/entities/{entity_id}")
 def get_entity_view(
     entity_id: str,
     system_at: str | None = None,
@@ -357,22 +357,22 @@ def get_entity_view(
     )
 
 
-@router.get("/entities/{entity_id}/timeline")
+@read_router.get("/entities/{entity_id}/timeline")
 def get_entity_timeline(entity_id: str, conn=Depends(db)):
     return queries.entity_timeline(conn, entity_id)
 
 
-@router.post("/entities/{entity_id}/merge")
+@write_router.post("/entities/{entity_id}/merge")
 def post_merge(entity_id: str, payload: MergePayload, conn=Depends(db)):
     return resolution.merge_entity(conn, entity_id, payload.target_id)
 
 
-@router.post("/resolve")
+@write_router.post("/resolve")
 def post_resolve(payload: ResolvePayload, conn=Depends(db)):
     return resolution.resolve(conn, **payload.model_dump())
 
 
-@router.post("/sources", status_code=201)
+@write_router.post("/sources", status_code=201)
 def post_source(payload: SourceCreate, conn=Depends(db)):
     return pipeline.ingest_document(
         conn, raw=payload.raw or {}, url=payload.url,
@@ -381,31 +381,31 @@ def post_source(payload: SourceCreate, conn=Depends(db)):
     )
 
 
-@router.post("/statements", status_code=201)
+@write_router.post("/statements", status_code=201)
 def post_statement(payload: StatementCreate, conn=Depends(db)):
     data = payload.model_dump()
     data["qualifiers"] = [q for q in data["qualifiers"]]
     return statements.commit_statement(conn, **data)
 
 
-@router.post("/statements/{statement_id}/deprecate")
+@write_router.post("/statements/{statement_id}/deprecate")
 def post_deprecate(statement_id: str, payload: DeprecatePayload, conn=Depends(db)):
     return statements.deprecate_statement(conn, statement_id, valid_to=payload.valid_to)
 
 
-@router.post("/statements/{statement_id}/rank")
+@write_router.post("/statements/{statement_id}/rank")
 def post_rank(statement_id: str, payload: RankPayload, conn=Depends(db)):
     if payload.rank not in ("preferred", "normal", "deprecated"):
         raise ValidationError(f"Ungültiger Rank '{payload.rank}'")
     return statements.supersede_statement(conn, statement_id, rank=payload.rank)
 
 
-@router.get("/search")
+@read_router.get("/search")
 def get_search(q: str, type_id: str | None = None, limit: int = 10, conn=Depends(db)):
     return queries.semantic_search(conn, q, type_id=type_id, limit=limit)
 
 
-@router.post("/query/traverse")
+@read_router.post("/query/traverse")
 def post_traverse(payload: TraversePayload, conn=Depends(db)):
     return queries.neighborhood(
         conn, payload.start_id, max_depth=payload.max_depth,
@@ -413,17 +413,17 @@ def post_traverse(payload: TraversePayload, conn=Depends(db)):
     )
 
 
-@router.get("/stats")
+@read_router.get("/stats")
 def get_stats(conn=Depends(db)):
     return queries.stats(conn)
 
 
-@router.get("/graph")
+@read_router.get("/graph")
 def get_graph(max_nodes: int = 400, conn=Depends(db)):
     return queries.graph_snapshot(conn, max_nodes=min(max_nodes, 2000))
 
 
-@router.get("/entities")
+@read_router.get("/entities")
 def get_entities(
     type_id: str | None = None,
     q: str | None = None,
@@ -435,12 +435,12 @@ def get_entities(
                                  limit=min(limit, 200), offset=offset)
 
 
-@router.get("/sources")
+@read_router.get("/sources")
 def get_sources(limit: int = 50, offset: int = 0, conn=Depends(db)):
     return queries.list_sources(conn, limit=min(limit, 200), offset=offset)
 
 
-@router.post("/sources/upload", status_code=201)
+@write_router.post("/sources/upload", status_code=201)
 async def post_source_upload(
     file: UploadFile,
     activity: str = Form("upload"),
@@ -469,7 +469,7 @@ async def post_source_upload(
     return {"source": doc, "file": meta}
 
 
-@router.get("/sources/{source_id}/file")
+@read_router.get("/sources/{source_id}/file")
 def get_source_file_download(source_id: str, conn=Depends(db)):
     row = files.get_source_file(conn, source_id)
     return Response(
@@ -481,12 +481,12 @@ def get_source_file_download(source_id: str, conn=Depends(db)):
     )
 
 
-@router.get("/sources/{source_id}")
+@read_router.get("/sources/{source_id}")
 def get_source_detail(source_id: str, conn=Depends(db)):
     return queries.get_source(conn, source_id)
 
 
-@router.post("/ingest/follower-list/preview")
+@write_router.post("/ingest/follower-list/preview")
 def post_follower_list_preview(payload: FollowerListPreviewPayload, conn=Depends(db)):
     return follower_import.preview_follower_list(
         conn, rows=[r.model_dump() for r in payload.rows],
@@ -494,7 +494,7 @@ def post_follower_list_preview(payload: FollowerListPreviewPayload, conn=Depends
     )
 
 
-@router.post("/ingest/follower-list/commit", status_code=201)
+@write_router.post("/ingest/follower-list/commit", status_code=201)
 def post_follower_list_commit(payload: FollowerListCommitPayload, conn=Depends(db)):
     return follower_import.commit_follower_list(
         conn, rows=[r.model_dump() for r in payload.rows],
@@ -503,7 +503,7 @@ def post_follower_list_commit(payload: FollowerListCommitPayload, conn=Depends(d
     )
 
 
-@router.post("/ingest", status_code=201)
+@write_router.post("/ingest", status_code=201)
 def post_ingest(payload: IngestPayload, conn=Depends(db)):
     doc = pipeline.ingest_document(
         conn, raw=payload.raw, url=payload.url, activity=payload.activity,
@@ -523,13 +523,41 @@ def post_ingest(payload: IngestPayload, conn=Depends(db)):
     return {"source": doc, "pipeline": report}
 
 
+# --- API-Key-Verwaltung (nur Session — ein Key kann keine Keys verwalten) ----
+
+
+@keys_router.get("/keys")
+def get_keys(conn=Depends(db)):
+    return api_keys.list_keys(conn)
+
+
+@keys_router.post("/keys", status_code=201)
+def post_key(payload: ApiKeyCreate, conn=Depends(db)):
+    return api_keys.create_key(conn, payload.name, payload.scope)
+
+
+@keys_router.post("/keys/{key_id}/rotate")
+def post_key_rotate(key_id: UUID, conn=Depends(db)):
+    return api_keys.rotate_key(conn, key_id)
+
+
+@keys_router.delete("/keys/{key_id}", status_code=204)
+def delete_key(key_id: UUID, conn=Depends(db)):
+    api_keys.delete_key(conn, key_id)
+    return Response(status_code=204)
+
+
 # --- Wiring: API unter /api, Frontend-Build als SPA auf / -------------------
 
 # Auth-Routen ungeschützt (Login/Logout/Me). Alles andere unter /api verlangt
-# eine gültige Session (Invariante 2 bleibt: der einzige Schreibweg ist die API,
-# jetzt zusätzlich hinter Auth).
+# eine Session ODER einen API-Key mit ausreichendem Scope (Hierarchie
+# read < write < admin; Session = Vollzugriff). Invariante 2 bleibt: der
+# einzige Schreibweg ist die API, jetzt zusätzlich hinter Auth/Scope.
 app.include_router(auth.router, prefix="/api")
-app.include_router(router, prefix="/api", dependencies=[Depends(require_auth)])
+app.include_router(keys_router, prefix="/api", dependencies=[Depends(require_auth)])
+app.include_router(read_router, prefix="/api", dependencies=[Depends(require_scope("read"))])
+app.include_router(write_router, prefix="/api", dependencies=[Depends(require_scope("write"))])
+app.include_router(admin_router, prefix="/api", dependencies=[Depends(require_scope("admin"))])
 
 # MCP-OAuth-Login (eigene Credential-Seite, kein /api-Prefix, keine Session
 # nötig — authentifiziert wird im Formular selbst, mit demselben Lockout).

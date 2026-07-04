@@ -717,3 +717,4 @@ button.linklike {
   cursor: pointer;
 }
 button.linklike:hover { color: var(--text0); border: none; }
+button.linklike.danger:hover { color: var(--danger); }

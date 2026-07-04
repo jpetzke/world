@@ -296,3 +296,15 @@ export interface FollowerListCommitResult {
   follows_confirmed: number
   skipped_invalid: number
 }
+
+export type ApiKeyScope = 'read' | 'write' | 'admin'
+
+export interface ApiKey {
+  id: string
+  name: string
+  secret: string
+  scope: ApiKeyScope
+  created_at: string
+  rotated_at: string | null
+  last_used_at: string | null
+}

@@ -22,6 +22,24 @@ def get_conn(dsn: str | None = None) -> psycopg.Connection:
     return conn
 
 
+def db():
+    """FastAPI-Dependency: eine Verbindung pro Request, Commit bei Erfolg.
+
+    Lebt hier (nicht in api.py), damit auch das Auth-Gate sie nutzen kann,
+    ohne einen Importzyklus auth → api zu erzeugen. FastAPI cacht die
+    Dependency pro Request — Gate und Route teilen dieselbe Verbindung.
+    """
+    conn = get_conn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def run_migrations(dsn: str | None = None) -> list[str]:
     """Wendet ausstehende Migrationen in Dateireihenfolge an."""
     applied: list[str] = []

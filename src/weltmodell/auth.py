@@ -8,10 +8,12 @@ das ist reine App-Schicht, kein Eingriff ins Substrat (Invarianten unberührt).
 import hmac
 import time
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from . import api_keys
 from .config import get_auth_password, get_auth_username
+from .db import db
 
 # --- Brute-Force-Lockout (in-memory, pro Client-IP) ------------------------
 # Single-Worker-Annahme: der State lebt im Prozess. Für einen privaten
@@ -88,6 +90,41 @@ def me(request: Request):
 
 
 def require_auth(request: Request) -> None:
-    """Dependency-Gate für alle geschützten /api-Routen."""
+    """Dependency-Gate für Session-only-Routen (u. a. Key-Verwaltung)."""
     if not request.session.get("user"):
         raise HTTPException(status_code=401, detail="Nicht angemeldet.")
+
+
+# --- API-Key-Gate (Scope-Hierarchie read < write < admin) -------------------
+
+
+def _request_secret(request: Request) -> str | None:
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip() or None
+    return request.headers.get("x-api-key")
+
+
+def require_scope(minimum: str):
+    """Dependency-Factory: Session = Vollzugriff, sonst API-Key mit Scope.
+
+    Der Key kommt als ``Authorization: Bearer wm_…`` oder ``X-API-Key``.
+    Kein Lockout nötig — Secrets sind 288-Bit-Zufall, nicht ratbar.
+    """
+
+    def dependency(request: Request, conn=Depends(db)) -> None:
+        if request.session.get("user"):
+            return
+        secret = _request_secret(request)
+        if not secret:
+            raise HTTPException(status_code=401, detail="Nicht angemeldet.")
+        key = api_keys.resolve_secret(conn, secret)
+        if key is None:
+            raise HTTPException(status_code=401, detail="Ungültiger API-Key.")
+        if not api_keys.scope_covers(key["scope"], minimum):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Scope '{key['scope']}' reicht nicht — '{minimum}' nötig.",
+            )
+
+    return dependency
