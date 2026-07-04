@@ -1,6 +1,11 @@
-FROM docker.io/postgis/postgis:17-3.5
+# Multi-arch Basis (amd64 + arm64): pgvector ist bereits enthalten, PostGIS
+# wird per apt nachinstalliert.
+#
+# Grund: postgis/postgis (debian UND alpine) publiziert kein arm64-Manifest —
+# auf dem arm64-Coolify-Host schlug `FROM postgis/postgis:17-3.5` mit
+# "no match for platform" fehl. pgvector/pgvector:pg17 ist multi-arch.
+FROM docker.io/pgvector/pgvector:pg17
 
-# pgvector aus dem PGDG-Repo (im postgis-Image bereits konfiguriert)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+    && apt-get install -y --no-install-recommends postgresql-17-postgis-3 \
     && rm -rf /var/lib/apt/lists/*
