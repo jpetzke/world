@@ -63,6 +63,9 @@
 
 * { box-sizing: border-box; }
 
+/* Native Controls (Select-Popup, Kalender-Indikator, Scrollbars) dunkel. */
+:root { color-scheme: dark; }
+
 html, body, #root { height: 100%; }
 
 body {
@@ -374,8 +377,56 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px rgba(86, 184, 255, 0.16), 0 0 16px rgba(86, 184, 255, 0.1);
 }
 textarea { font-family: var(--mono); font-size: 12px; min-height: 120px; }
-input[type='range'] { padding: 0; accent-color: var(--continuant); }
-input[type='checkbox'] { width: auto; accent-color: var(--continuant); }
+input[type='checkbox'] { width: 15px; height: 15px; accent-color: var(--continuant); flex: none; }
+
+/* Datei-Feld: gleiche Anatomie wie die übrigen Controls. */
+input[type='file'] { padding: 4px 6px; cursor: pointer; }
+input[type='file']::file-selector-button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text0);
+  background: rgba(34, 46, 76, 0.6);
+  border: 1px solid var(--edge-hover);
+  border-radius: var(--r-pill);
+  padding: 3px 12px;
+  margin-right: 10px;
+  cursor: pointer;
+}
+
+/* Slider: dunkler Track, leuchtender Daumen — statt Browser-Grau. */
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: rgba(130, 170, 255, 0.18);
+  accent-color: var(--continuant);
+}
+input[type='range']:focus { box-shadow: none; }
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: none;
+  background: var(--continuant);
+  box-shadow: 0 0 8px rgba(86, 184, 255, 0.55);
+  cursor: pointer;
+}
+input[type='range']::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: none;
+  background: var(--continuant);
+  box-shadow: 0 0 8px rgba(86, 184, 255, 0.55);
+  cursor: pointer;
+}
+input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(130, 170, 255, 0.18);
+}
 
 label.field { display: block; margin-bottom: 12px; }
 label.field > span, .field-label {
@@ -390,6 +441,9 @@ label.field > span, .field-label {
 
 .row { display: flex; gap: 12px; align-items: flex-end; }
 .row > * { flex: 1; }
+/* In einer Zeile richtet flex-end die MARGIN-Boxen aus — das Feld-Margin
+   würde Buttons daneben 12px nach unten schieben. In Rows: kein Margin. */
+.row label.field, .row .field { margin-bottom: 0; }
 
 .panel {
   border-radius: var(--r-card);
@@ -430,6 +484,12 @@ td {
   transition: background-color .12s ease;
 }
 tr:hover td { background: rgba(130, 170, 255, 0.045); }
+/* Badge-Spalten (kind/chip) schrumpfen auf Inhalt — keine Riesenlücke
+   zwischen Typ und Label durch das Auto-Layout. */
+td:first-child:has(.kind), td:first-child:has(.chip) {
+  width: 1%;
+  white-space: nowrap;
+}
 
 .stat { text-align: left; }
 .stat b {
@@ -689,8 +749,6 @@ tr:hover td { background: rgba(130, 170, 255, 0.045); }
 .fact-row .fact-val { flex: 1; color: var(--text0); }
 
 .fact-add { border-top: 1px solid var(--edge-hair); padding-top: 12px; margin-top: 4px; }
-.fact-add > .row { align-items: flex-end; }
-.fact-add > .row > .field, .fact-add > .row .field { margin-bottom: 0; }
 /* Select, Wert-Inputs und der +-Button teilen dieselbe Höhe → saubere Kante */
 .fact-add > .row select,
 .fact-add > .row input { height: 36px; }
