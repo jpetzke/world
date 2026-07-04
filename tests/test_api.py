@@ -104,7 +104,8 @@ def test_api_ingest_search_traverse(client):
     graph = client.post("/api/query/traverse", json={
         "start_id": person_id, "max_depth": 2,
     }).json()
-    assert any(n["label"] == "@apiingest" for n in graph["nodes"])
+    # Label = handle-Statement (label_predicate), bare — kein Cache-„@" (Inv. 1)
+    assert any(n["label"] == "apiingest" for n in graph["nodes"])
 
 
 def test_api_stats_entities_sources(client):

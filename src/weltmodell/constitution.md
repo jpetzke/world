@@ -19,10 +19,14 @@ eigenes dazu.
 3. **Kein Fakt ohne Provenance.** Jedes Statement braucht ≥1 Quelle
    (`welt_create_source` zuerst, dann `source_ids`). Confidence < 1.0 ist der
    Normalfall. Nur nackte Entity-Anker brauchen keine Quelle.
-4. **Überschreibe nie — supersede/deprecate.** Es gibt kein DELETE und kein
-   UPDATE auf Fakten. Korrektur = `welt_deprecate_statement` bzw. neuer Commit;
-   Widersprüche koexistieren via Rank + Confidence + Bitemporalität.
-   Kardinalitätskonflikt ist ein Flag, kein Fehler.
+4. **Überschreibe nie — supersede/deprecate.** Ändert sich die WELT oder kommt
+   eine bessere Behauptung: `welt_deprecate_statement` bzw. neuer Commit
+   (+ `welt_set_rank`); Widersprüche koexistieren via Rank + Confidence +
+   Bitemporalität, Historie bleibt. Kardinalitätskonflikt ist ein Flag, kein
+   Fehler. Genau EINE Ausnahme: `welt_fix_statement` korrigiert einen echten
+   FEHLER im Record in place (Erratum, überschreibt/löscht) — nur wenn die Zeile
+   schlicht falsch war und nie hätte existieren dürfen, niemals um einen
+   Zeitverlauf zu modellieren.
 5. **Continuant/Occurrent-Split ist heilig.** Existiert es durch die Zeit mit
    Identität → Continuant. Passiert es in einem Zeitfenster → Occurrent
    (`Ereignis`-Ast). Nie vermischen.
@@ -78,6 +82,9 @@ datetime-Statements (mit Provenance). `valid_from`/`valid_to` sagen, wann die
   Snapshot ist KEIN Gegenbeweis (kein implizites Unfollow).
 - **Merge statt Zweitanlage:** erkannte Dubletten mit `welt_merge_entities`
   verlustfrei zusammenführen (Provenance beider Seiten bleibt).
+- **Bulk bevorzugen:** mehrere Anker/Fakten auf einmal immer per
+  `welt_create_entities` / `welt_commit_statements` (ein Roundtrip) statt
+  vieler Einzelaufrufe — schneller und atomar.
 - Statement-Werte sind polymorph (`value.type`):
   `entity` (`object_id`) · `string` (`text`) · `number` (`number`) ·
   `quantity` (`number`+`unit`) · `datetime` (`datetime`, ISO) ·

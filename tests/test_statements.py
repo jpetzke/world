@@ -5,10 +5,16 @@ Minimalmodell: nur Person und SocialMediaAccount."""
 
 import pytest
 
-from weltmodell.entities import create_entity
+from weltmodell.entities import create_entities, create_entity, get_entity
 from weltmodell.errors import ValidationError
 from weltmodell.queries import entity_view
-from weltmodell.statements import commit_statement, deprecate_statement
+from weltmodell.statements import (
+    commit_statement,
+    commit_statements,
+    deprecate_statement,
+    fix_statement,
+    supersede_statement,
+)
 
 
 @pytest.fixture
@@ -206,3 +212,167 @@ def test_finance_range_enforced(conn, person, source_id):
             conn, subject_id=deal, predicate_id="übernahmeziel",
             value={"type": "entity", "object_id": person}, source_ids=[source_id],
         )
+
+
+# --- Label-Cache: ableitbar, jederzeit neu berechenbar (Invariante 1) ---------
+
+
+def test_label_cache_recomputes_on_preferred_commit(conn, source_id):
+    # entity.label folgt dem besten name-Statement, nicht dem create-Argument
+    pid = str(create_entity(conn, type_id="Person", label="Jonas")["id"])
+    commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "Jonas"}, source_ids=[source_id],
+        confidence=0.6,
+    )
+    assert get_entity(conn, pid)["label"] == "Jonas"
+    # Korrektur mit rank=preferred schlägt durch (preferred vor normal)
+    commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "Jonas Petzke"}, source_ids=[source_id],
+        rank="preferred",
+    )
+    assert get_entity(conn, pid)["label"] == "Jonas Petzke"
+
+
+def test_label_cache_follows_rank_change(conn, source_id):
+    # Rank-Wechsel via set_rank (supersede) verschiebt die preferred-Wahl → Cache
+    pid = str(create_entity(conn, type_id="Person", label="Alt")["id"])
+    a = commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "Alt Name"}, source_ids=[source_id],
+        confidence=0.5,
+    )
+    commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "Neu Name"}, source_ids=[source_id],
+        confidence=0.9,
+    )
+    assert get_entity(conn, pid)["label"] == "Neu Name"  # höhere Confidence
+    supersede_statement(conn, str(a["id"]), rank="preferred")
+    assert get_entity(conn, pid)["label"] == "Alt Name"  # preferred schlägt Confidence
+
+
+def test_label_cache_after_deprecate(conn, source_id):
+    pid = str(create_entity(conn, type_id="Person", label="X")["id"])
+    a = commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "First"}, source_ids=[source_id],
+        confidence=0.9,
+    )
+    commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "Second"}, source_ids=[source_id],
+        confidence=0.5,
+    )
+    assert get_entity(conn, pid)["label"] == "First"
+    deprecate_statement(conn, str(a["id"]))
+    assert get_entity(conn, pid)["label"] == "Second"  # First deprecated → Second
+
+
+# --- Bulk-Operationen ----------------------------------------------------------
+
+
+def test_bulk_create_entities(conn):
+    out = create_entities(conn, items=[
+        {"type_id": "Person", "label": "Bulk A"},
+        {"type_id": "Person", "label": "Bulk B"},
+    ])
+    assert out["total"] == 2 and out["committed"] == 2
+    assert all(r["ok"] for r in out["results"])
+    assert out["results"][0]["label"] == "Bulk A"
+
+
+def test_bulk_create_entities_atomic_aborts_with_index(conn):
+    with pytest.raises(ValidationError, match="Item 1"):
+        create_entities(conn, items=[
+            {"type_id": "Person", "label": "Good"},
+            {"type_id": "GibtEsNicht", "label": "Bad"},
+        ], atomic=True)
+
+
+def test_bulk_commit_best_effort_isolates_failures(conn, source_id):
+    pid = str(create_entity(conn, type_id="Person", label="Bulk Subj")["id"])
+    out = commit_statements(conn, items=[
+        {"subject_id": pid, "predicate_id": "name",
+         "value": {"type": "string", "text": "ok1"}, "source_ids": [source_id]},
+        {"subject_id": pid, "predicate_id": "erfundenes_praedikat",
+         "value": {"type": "string", "text": "x"}, "source_ids": [source_id]},
+        {"subject_id": pid, "predicate_id": "name",
+         "value": {"type": "string", "text": "ok2"}, "source_ids": [source_id]},
+    ], atomic=False)
+    assert out["committed"] == 2
+    assert [r["ok"] for r in out["results"]] == [True, False, True]
+    assert "erfundenes_praedikat" in out["results"][1]["error"]
+    # Die gültigen zwei sind wirklich persistiert (Savepoint isoliert nur den Fehler)
+    names = conn.execute(
+        "SELECT count(*) AS n FROM statement WHERE subject_id = %s "
+        "AND predicate_id = 'name' AND system_to IS NULL", (pid,)
+    ).fetchone()["n"]
+    assert names == 2
+
+
+# --- fix: Erratum-Korrektur (bricht bewusst Invariante 4) ----------------------
+
+
+def test_fix_overwrites_value_in_place(conn, source_id):
+    pid = str(create_entity(conn, type_id="Person", label="Fix Subj")["id"])
+    row = commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "Tpyo"}, source_ids=[source_id],
+    )
+    fixed = fix_statement(
+        conn, str(row["id"]), reason="Tippfehler",
+        value={"type": "string", "text": "Typo"},
+    )
+    assert fixed["value_text"] == "Typo"
+    assert str(fixed["id"]) == str(row["id"])  # gleiche Zeile, kein neuer Versionssatz
+    # Kein bitemporaler Zwilling — genau eine Zeile mit dieser id
+    n = conn.execute(
+        "SELECT count(*) AS n FROM statement WHERE id = %s", (str(row["id"]),)
+    ).fetchone()["n"]
+    assert n == 1
+    assert get_entity(conn, pid)["label"] == "Typo"  # Label-Cache folgt dem Fix
+
+
+def test_fix_delete_removes_statement_and_children(conn, source_id):
+    pid = str(create_entity(conn, type_id="Person", label="Del Subj")["id"])
+    row = commit_statement(
+        conn, subject_id=pid, predicate_id="knows",
+        value={"type": "entity",
+               "object_id": str(create_entity(conn, type_id="Person",
+                                              label="Other")["id"])},
+        source_ids=[source_id],
+        qualifiers=[{"predicate_id": "beginn",
+                     "value": {"type": "datetime", "datetime": "2020-01-01"}}],
+    )
+    out = fix_statement(conn, str(row["id"]), reason="versehentlich", delete=True)
+    assert out["deleted"] is True
+    assert conn.execute(
+        "SELECT count(*) AS n FROM statement WHERE id = %s", (str(row["id"]),)
+    ).fetchone()["n"] == 0
+    assert conn.execute(  # ON DELETE CASCADE räumt Qualifier mit weg
+        "SELECT count(*) AS n FROM qualifier WHERE statement_id = %s", (str(row["id"]),)
+    ).fetchone()["n"] == 0
+
+
+def test_fix_revalidates_against_registry(conn, source_id):
+    # Ein Fix darf nie ein ungültiges Statement erzeugen: name erwartet string
+    pid = str(create_entity(conn, type_id="Person", label="RV")["id"])
+    row = commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "ok"}, source_ids=[source_id],
+    )
+    with pytest.raises(ValidationError, match="Range-Verstoß"):
+        fix_statement(conn, str(row["id"]), reason="x",
+                      value={"type": "number", "number": 5})
+
+
+def test_fix_requires_reason(conn, source_id):
+    pid = str(create_entity(conn, type_id="Person", label="RR")["id"])
+    row = commit_statement(
+        conn, subject_id=pid, predicate_id="name",
+        value={"type": "string", "text": "ok"}, source_ids=[source_id],
+    )
+    with pytest.raises(ValidationError, match="reason"):
+        fix_statement(conn, str(row["id"]), reason="   ", rank="preferred")

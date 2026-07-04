@@ -108,8 +108,11 @@ class RuleBasedExtractor:
             handle, platform = acc.get("handle"), acc.get("platform")
             uri = acc.get("uri") or (f"{platform}:{handle}" if platform and handle else None)
             account = EntityRef(
+                # Bare handle als Bezeichner — deckungsgleich mit dem handle-
+                # Statement (label_predicate) und mit follower_import. Ein „@" nur
+                # im Cache wäre eine zweite Wahrheit (Inv. 1); Deko gehört ins UI.
                 "SocialMediaAccount",
-                label=f"@{handle}" if handle else uri,
+                label=handle if handle else uri,
                 identifiers={"account_uri": uri} if uri else {},
             )
             result.statements.append(

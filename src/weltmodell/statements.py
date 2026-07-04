@@ -11,7 +11,7 @@ from typing import Any
 
 import psycopg
 
-from .entities import canonical_id, get_entity
+from .entities import canonical_id, get_entity, refresh_entity_label, run_bulk
 from .errors import NotFoundError, ValidationError
 from .registry import get_predicate, is_subtype, type_interfaces
 
@@ -191,6 +191,9 @@ def commit_statement(
             (row["id"], sid),
         )
 
+    # Label-Cache neu ableiten, falls dies das Bezeichner-Prädikat war (Inv. 1)
+    refresh_entity_label(conn, subject_id, changed_predicate=predicate_id)
+
     row["flags"] = flags
     return row
 
@@ -268,6 +271,11 @@ def supersede_statement(
            SELECT %s, source_id FROM reference WHERE statement_id = %s""",
         (new["id"], statement_id),
     )
+    # Rank-/Deprecate-Wechsel am Bezeichner-Prädikat kann die preferred-Wahl
+    # verschieben → Label-Cache neu ableiten (Inv. 1). Deckt set_rank + deprecate.
+    refresh_entity_label(
+        conn, str(new["subject_id"]), changed_predicate=new["predicate_id"]
+    )
     return new
 
 
@@ -276,3 +284,116 @@ def deprecate_statement(
 ) -> dict:
     """Überschreibe nie — deprecate (Invariante 4, §6)."""
     return supersede_statement(conn, statement_id, rank="deprecated", valid_to=valid_to)
+
+
+def commit_statements(
+    conn: psycopg.Connection,
+    *,
+    items: list[dict[str, Any]],
+    atomic: bool = True,
+) -> dict[str, Any]:
+    """Mehrere Statements in einem Rutsch committen (Bulk). Jedes item hat die
+    Felder von commit_statement: subject_id, predicate_id, value, source_ids und
+    optional rank, confidence, origin, valid_from, valid_to, qualifiers."""
+
+    def one(c: psycopg.Connection, item: dict[str, Any]) -> dict[str, Any]:
+        row = commit_statement(
+            c,
+            subject_id=item["subject_id"],
+            predicate_id=item["predicate_id"],
+            value=item["value"],
+            source_ids=item["source_ids"],
+            rank=item.get("rank", "normal"),
+            confidence=item.get("confidence", 1.0),
+            origin=item.get("origin", "asserted"),
+            valid_from=item.get("valid_from"),
+            valid_to=item.get("valid_to"),
+            qualifiers=item.get("qualifiers") or [],
+        )
+        return {"id": str(row["id"]), "flags": row["flags"]}
+
+    return run_bulk(conn, items, one, atomic=atomic)
+
+
+def fix_statement(
+    conn: psycopg.Connection,
+    statement_id: str,
+    *,
+    reason: str,
+    delete: bool = False,
+    value: dict[str, Any] | None = None,
+    rank: str | None = None,
+    confidence: float | None = None,
+    valid_from: Any = None,
+    valid_to: Any = None,
+) -> dict[str, Any]:
+    """ERRATUM-Eskalationsluke — korrigiert einen Record IN PLACE, bricht damit
+    bewusst Invariante 4 (kein Overwrite).
+
+    Abgrenzung: supersede/deprecate bewahren Historie, weil sich die WELT ändert
+    oder eine bessere Behauptung dazukommt. fix ist NUR für einen echten FEHLER
+    im Record — die Zeile war falsch und hätte so nie existieren dürfen. Kein
+    neuer bitemporaler Versionssatz, keine deprecated-Kopie: es wird überschrieben
+    (value/rank/confidence/valid_from/valid_to, nur die übergebenen Felder) oder
+    mit delete=True samt Qualifiern/Referenzen (ON DELETE CASCADE) ganz entfernt.
+
+    Wirkt auf JEDE Zeile per id — auch bereits transaktionszeitlich geschlossene
+    (historische) Statements. reason ist Pflicht (Audit). Ein Wert-Fix wird gegen
+    die Registry re-validiert: ein Fix darf nie ein ungültiges Statement erzeugen.
+    """
+    if not reason or not reason.strip():
+        raise ValidationError("fix braucht einen reason (Audit-Pflicht).")
+
+    old = conn.execute(
+        "SELECT * FROM statement WHERE id = %s", (statement_id,)
+    ).fetchone()
+    if old is None:
+        raise NotFoundError(f"Statement {statement_id} nicht gefunden")
+
+    subject_id, predicate_id = str(old["subject_id"]), old["predicate_id"]
+
+    if delete:
+        conn.execute("DELETE FROM statement WHERE id = %s", (statement_id,))
+        refresh_entity_label(conn, subject_id, changed_predicate=predicate_id)
+        return {"fixed": str(statement_id), "deleted": True, "reason": reason}
+
+    sets: list[str] = []
+    params: dict[str, Any] = {"id": statement_id}
+    flags: list[str] = []
+
+    if value is not None:
+        if value.get("type") == "entity" and value.get("object_id"):
+            value = {**value, "object_id": canonical_id(conn, value["object_id"])}
+        cols, flags = validate_statement(
+            conn, subject_id=subject_id, predicate_id=predicate_id, value=value
+        )
+        casts = {"value_geo": "::geography", "value_json": "::jsonb"}
+        for col in ("value_type", *VALUE_COLUMNS):
+            sets.append(f"{col} = %({col})s{casts.get(col, '')}")
+            params[col] = cols[col]
+    if rank is not None:
+        sets.append("rank = %(rank)s")
+        params["rank"] = rank
+    if confidence is not None:
+        sets.append("confidence = %(confidence)s")
+        params["confidence"] = confidence
+    if valid_from is not None:
+        sets.append("valid_from = %(valid_from)s")
+        params["valid_from"] = valid_from
+    if valid_to is not None:
+        sets.append("valid_to = %(valid_to)s")
+        params["valid_to"] = valid_to
+    if not sets:
+        raise ValidationError(
+            "fix ohne Änderung: value/rank/confidence/valid_from/valid_to "
+            "angeben oder delete=true."
+        )
+
+    row = conn.execute(
+        f"UPDATE statement SET {', '.join(sets)} WHERE id = %(id)s RETURNING *",
+        params,
+    ).fetchone()
+    refresh_entity_label(conn, subject_id, changed_predicate=predicate_id)
+    row["flags"] = flags
+    row["fixed_reason"] = reason
+    return row

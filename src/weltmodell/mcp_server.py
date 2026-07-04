@@ -37,7 +37,7 @@ from starlette.routing import Route
 from . import follower_import, pipeline, queries, registry, resolution, statements
 from .config import get_public_url, is_prod
 from .db import get_conn
-from .entities import create_entity
+from .entities import create_entities, create_entity
 from .errors import NotFoundError, RegistryError, ValidationError
 from .mcp_auth import SCOPES, WeltOAuthProvider
 
@@ -54,6 +54,9 @@ PostgreSQL. Arbeitsablauf:
 3. Kein Fakt ohne Quelle: erst welt_create_source, dann welt_commit_statement.
 4. Fehlendes Vokabular nie umgehen: welt_propose_type / welt_propose_predicate,
    Review mit welt_decide_proposal.
+5. Mehreres auf einmal: welt_create_entities / welt_commit_statements (Bulk,
+   ein Roundtrip) den Einzel-Tools vorziehen. Echten Record-Fehler in place
+   korrigieren: welt_fix_statement (Erratum, kein Modellieren von Zeitverläufen).
 Antworten sind kompakt: null-Felder werden weggelassen."""
 
 _allowed_hosts = [_parsed.netloc, "localhost:*", "127.0.0.1:*"]
@@ -318,7 +321,7 @@ async def welt_traverse(
     Prädikat). predicates schränkt auf bestimmte Kanten ein. total_nodes
     nennt die echte Größe, wenn max_nodes kappt."""
     return await _run(
-        partial(queries.neighborhood, start_id, max_depth=max_depth,
+        partial(queries.neighborhood, start_id=start_id, max_depth=max_depth,
                 predicates=predicates, max_nodes=min(max_nodes, 500))
     )
 
@@ -393,11 +396,27 @@ async def welt_create_entity(
     """Entity (Identitäts-Anker) anlegen. VORHER welt_resolve/welt_search —
     Duplikate vermeiden; Dubletten später nur per welt_merge_entities heilbar.
     embed_text übersteuert den Embedding-Text (Default: label). Fakten über
-    die Entity danach als Statements committen, nie hier hineinquetschen."""
+    die Entity danach als Statements committen, nie hier hineinquetschen.
+    Mehrere Entities auf einmal? welt_create_entities bevorzugen (ein Roundtrip)."""
     _require_write()
     return await _run(
         partial(create_entity, type_id=type_id, label=label, embed_text=embed_text)
     )
+
+
+@mcp.tool()
+async def welt_create_entities(
+    entities: list[dict[str, Any]],
+    atomic: bool = True,
+) -> dict[str, Any]:
+    """BULK-Variante von welt_create_entity — für mehrere Anker BEVORZUGT nutzen
+    (ein Roundtrip statt N). entities: [{"type_id":…, "label"?:…, "embed_text"?:…}].
+    VORHER pro Ziel welt_resolve/welt_search (Duplikate vermeiden).
+    atomic=true (Default): alles-oder-nichts, der erste Fehler bricht ab.
+    atomic=false: Best-Effort — gültige Anker entstehen, fehlerhafte werden im
+    results-Report (index, ok, error) übersprungen. Liefert total/committed/results."""
+    _require_write()
+    return await _run(partial(create_entities, items=entities, atomic=atomic))
 
 
 @mcp.tool()
@@ -423,7 +442,8 @@ async def welt_commit_statement(
     (reguläre Registry-Prädikate, dual nutzbar — z. B. beginn als Zeit-Qualifier).
     valid_from/valid_to = Gültigkeit der BEHAUPTUNG (Ereigniszeit ist ein
     eigenes beginn/ende-Statement!). Ehrliche confidence < 1.0 ist normal.
-    Kardinalitätskonflikte kommen als flags zurück, kein Reject."""
+    Kardinalitätskonflikte kommen als flags zurück, kein Reject.
+    Mehrere Fakten auf einmal? welt_commit_statements bevorzugen (ein Roundtrip)."""
     _require_write()
     return await _run(
         partial(statements.commit_statement, subject_id=subject_id,
@@ -431,6 +451,27 @@ async def welt_commit_statement(
                 rank=rank, confidence=confidence, origin=origin,
                 valid_from=valid_from, valid_to=valid_to,
                 qualifiers=qualifiers or [])
+    )
+
+
+@mcp.tool()
+async def welt_commit_statements(
+    statements_batch: list[dict[str, Any]],
+    atomic: bool = True,
+) -> dict[str, Any]:
+    """BULK-Variante von welt_commit_statement — für mehrere Fakten BEVORZUGT
+    nutzen (ein Roundtrip statt N). Jedes Element trägt die Felder von
+    welt_commit_statement:
+      {"subject_id":…, "predicate_id":…, "value":{…}, "source_ids":[…],
+       "rank"?:…, "confidence"?:…, "origin"?:…, "valid_from"?:…, "valid_to"?:…,
+       "qualifiers"?:[…]}
+    atomic=true (Default): alles-oder-nichts, der erste Fehler bricht ab und
+    nennt den Item-Index. atomic=false: Best-Effort per Savepoint — gültige
+    Fakten werden committet, fehlerhafte im results-Report (index, ok, error/
+    id, flags) übersprungen. Liefert total/committed/results."""
+    _require_write()
+    return await _run(
+        partial(statements.commit_statements, items=statements_batch, atomic=atomic)
     )
 
 
@@ -444,7 +485,8 @@ async def welt_deprecate_statement(
     die Gültigkeit der Behauptung."""
     _require_write()
     return await _run(
-        partial(statements.deprecate_statement, statement_id, valid_to=valid_to)
+        partial(statements.deprecate_statement, statement_id=statement_id,
+                valid_to=valid_to)
     )
 
 
@@ -455,7 +497,43 @@ async def welt_set_rank(
     """Rank eines Statements ändern (Supersession, Historie bleibt).
     preferred markiert die beste von mehreren koexistierenden Behauptungen."""
     _require_write()
-    return await _run(partial(statements.supersede_statement, statement_id, rank=rank))
+    return await _run(
+        partial(statements.supersede_statement, statement_id=statement_id, rank=rank)
+    )
+
+
+@mcp.tool()
+async def welt_fix_statement(
+    statement_id: str,
+    reason: str,
+    delete: bool = False,
+    value: dict[str, Any] | None = None,
+    rank: Literal["preferred", "normal", "deprecated"] | None = None,
+    confidence: float | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+) -> dict[str, Any]:
+    """ERRATUM-Korrektur: überschreibt ein Statement IN PLACE oder löscht es —
+    die Ausnahme von Invariante 4, NUR für echte Fehler im Record.
+
+    Abgrenzung — erst diese Frage beantworten:
+    - Hat sich die WELT geändert / gibt es eine bessere Behauptung? → NICHT fix.
+      Nimm welt_commit_statement (+ welt_set_rank/welt_deprecate_statement);
+      Historie muss erhalten bleiben.
+    - War die Zeile schlicht FALSCH (Tippfehler, falscher Wert/Datum, versehentlich
+      angelegt) und hätte so nie existieren dürfen? → fix.
+
+    Setzt nur die übergebenen Felder (value/rank/confidence/valid_from/valid_to)
+    hart neu — kein neuer Versionssatz, keine deprecated-Kopie. delete=true entfernt
+    das Statement samt Qualifiern und Referenzen ganz. Wirkt auf JEDE Zeile per id,
+    auch historische. value wird gegen die Registry re-validiert (ein Fix erzeugt
+    nie ein ungültiges Statement). reason ist Pflicht (Audit)."""
+    _require_write()
+    return await _run(
+        partial(statements.fix_statement, statement_id=statement_id, reason=reason,
+                delete=delete, value=value, rank=rank, confidence=confidence,
+                valid_from=valid_from, valid_to=valid_to)
+    )
 
 
 @mcp.tool()

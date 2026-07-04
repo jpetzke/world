@@ -296,3 +296,98 @@ def test_host_forgery_rejected(mcp_client):
     r = _mcp_call(mcp_client, tokens["access_token"], "tools/list",
                   headers={"Host": "evil.example"})
     assert r.status_code == 421
+
+
+def test_id_tools_no_longer_pass_id_into_conn_slot(mcp_client):
+    # Regression: welt_set_rank / welt_traverse / welt_deprecate_statement banden
+    # die id positional in partial → sie landete im conn-Slot → 'str' object has
+    # no attribute 'execute'. Jetzt als kwarg gebunden.
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+    _tool(mcp_client, at, "welt_constitution")  # Gate öffnen
+
+    person = _tool(mcp_client, at, "welt_create_entity",
+                   {"type_id": "Person", "label": "Traverse Person"})["structuredContent"]
+    acc = _tool(mcp_client, at, "welt_create_entity",
+                {"type_id": "SocialMediaAccount", "label": "@trav"})["structuredContent"]
+    src = _tool(mcp_client, at, "welt_create_source",
+                {"activity": "test:idtools", "agent": "pytest"})["structuredContent"]
+
+    stmt = _tool(mcp_client, at, "welt_commit_statement", {
+        "subject_id": person["id"], "predicate_id": "owns_account",
+        "value": {"type": "entity", "object_id": acc["id"]},
+        "source_ids": [src["id"]],
+    })["structuredContent"]
+
+    # welt_traverse — vorher kaputt
+    r = _tool(mcp_client, at, "welt_traverse",
+              {"start_id": person["id"], "max_depth": 1})
+    assert r.get("isError") is not True, r
+    node_ids = {n["id"] for n in r["structuredContent"]["nodes"]}
+    assert person["id"] in node_ids and acc["id"] in node_ids
+
+    # welt_set_rank — vorher kaputt (supersedet stmt)
+    r = _tool(mcp_client, at, "welt_set_rank",
+              {"statement_id": stmt["id"], "rank": "preferred"})
+    assert r.get("isError") is not True, r
+    assert r["structuredContent"]["rank"] == "preferred"
+
+    # welt_deprecate_statement — vorher kaputt (frisches, aktuelles Statement)
+    fresh = _tool(mcp_client, at, "welt_commit_statement", {
+        "subject_id": person["id"], "predicate_id": "name",
+        "value": {"type": "string", "text": "Traverse Person"},
+        "source_ids": [src["id"]],
+    })["structuredContent"]
+    r = _tool(mcp_client, at, "welt_deprecate_statement",
+              {"statement_id": fresh["id"]})
+    assert r.get("isError") is not True, r
+    assert r["structuredContent"]["rank"] == "deprecated"
+
+
+def test_bulk_and_fix_tools_end_to_end(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+    _tool(mcp_client, at, "welt_constitution")  # Gate öffnen
+
+    src = _tool(mcp_client, at, "welt_create_source",
+                {"activity": "test:bulk", "agent": "pytest"})["structuredContent"]
+
+    # Bulk-Entities
+    ents = _tool(mcp_client, at, "welt_create_entities", {"entities": [
+        {"type_id": "Person", "label": "Bulk One"},
+        {"type_id": "Person", "label": "Bulk Two"},
+    ]})["structuredContent"]
+    assert ents["committed"] == 2
+    pid = ents["results"][0]["id"]
+
+    # Bulk-Statements, Best-Effort: ein gültiges + ein ungültiges Prädikat
+    res = _tool(mcp_client, at, "welt_commit_statements", {
+        "statements_batch": [
+            {"subject_id": pid, "predicate_id": "name",
+             "value": {"type": "string", "text": "Bulk One"}, "source_ids": [src["id"]]},
+            {"subject_id": pid, "predicate_id": "nichtexistent",
+             "value": {"type": "string", "text": "x"}, "source_ids": [src["id"]]},
+        ], "atomic": False,
+    })["structuredContent"]
+    assert res["committed"] == 1
+    assert res["results"][1]["ok"] is False
+    good_id = res["results"][0]["id"]
+
+    # fix: Wert in place überschreiben
+    fixed = _tool(mcp_client, at, "welt_fix_statement", {
+        "statement_id": good_id, "reason": "Korrektur",
+        "value": {"type": "string", "text": "Bulk One Fixed"},
+    })
+    assert fixed.get("isError") is not True, fixed
+    assert fixed["structuredContent"]["value_text"] == "Bulk One Fixed"
+
+    # fix: reason fehlt → Reject
+    r = _tool(mcp_client, at, "welt_fix_statement",
+              {"statement_id": good_id, "reason": "  ", "rank": "preferred"})
+    assert r.get("isError") is True
+    assert "reason" in r["content"][0]["text"]
+
+    # fix: delete
+    d = _tool(mcp_client, at, "welt_fix_statement",
+              {"statement_id": good_id, "reason": "weg", "delete": True})["structuredContent"]
+    assert d["deleted"] is True
