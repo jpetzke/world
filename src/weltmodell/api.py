@@ -9,17 +9,40 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from starlette.middleware.sessions import SessionMiddleware
 
-from . import files, follower_import, pipeline, queries, registry, resolution, statements
+from . import auth, files, follower_import, pipeline, queries, registry, resolution, statements
+from .auth import require_auth
+from .config import get_session_secret, is_prod
 from .db import get_conn, run_migrations
 from .entities import create_entity, get_entity
 from .errors import NotFoundError, RegistryError, ValidationError
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+# Uploads landen komplett im RAM (await file.read()) — Deckel gegen OOM/DoS.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MiB
+
+_PROD = is_prod()
+
+_CSP = "; ".join(
+    [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+        "form-action 'self'",
+        "object-src 'none'",
+        "img-src 'self' data:",
+        "style-src 'self' 'unsafe-inline'",  # React setzt style-Attribute
+        "script-src 'self'",
+        "connect-src 'self'",
+        "font-src 'self'",
+    ]
+)
 
 
 @asynccontextmanager
@@ -28,13 +51,61 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Weltmodell", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5174"],  # Vite-Dev-Server
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Docs/OpenAPI in Prod aus — kein unnötiges Aufdecken der API-Fläche.
+app = FastAPI(
+    title="Weltmodell",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url=None if _PROD else "/docs",
+    redoc_url=None if _PROD else "/redoc",
+    openapi_url=None if _PROD else "/openapi.json",
 )
+
+# Signierte Server-Session; HttpOnly (Starlette-Default), Secure in Prod,
+# SameSite=Strict → CSRF-fest ohne separates Token.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=get_session_secret(),
+    session_cookie="wm_session",
+    https_only=_PROD,
+    same_site="strict",
+    max_age=14 * 24 * 3600,
+)
+
+# CORS nur im Dev (Vite auf anderem Port). In Prod läuft alles same-origin.
+if not _PROD:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5174"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Content-Security-Policy"] = _CSP
+    if _PROD:
+        resp.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return resp
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    """Unauthentifizierter Liveness-Check für Coolify/Traefik."""
+    conn = get_conn()
+    try:
+        conn.execute("SELECT 1")
+        return {"status": "ok"}
+    finally:
+        conn.close()
+
+
 router = APIRouter()
 
 
@@ -354,6 +425,11 @@ async def post_source_upload(
     """Original-Datei hochladen: legt eine Quelle an und archiviert das
     Original binär in der DB (1:1). Keine Extraktion — reines Archiv (§5)."""
     data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Datei zu groß (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB).",
+        )
     doc = pipeline.ingest_document(
         conn, raw={}, url=url, activity=activity,
         agent=file.filename or "upload",
@@ -424,7 +500,11 @@ def post_ingest(payload: IngestPayload, conn=Depends(db)):
 
 # --- Wiring: API unter /api, Frontend-Build als SPA auf / -------------------
 
-app.include_router(router, prefix="/api")
+# Auth-Routen ungeschützt (Login/Logout/Me). Alles andere unter /api verlangt
+# eine gültige Session (Invariante 2 bleibt: der einzige Schreibweg ist die API,
+# jetzt zusätzlich hinter Auth).
+app.include_router(auth.router, prefix="/api")
+app.include_router(router, prefix="/api", dependencies=[Depends(require_auth)])
 
 if FRONTEND_DIST.exists():
 

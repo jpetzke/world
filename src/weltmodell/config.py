@@ -33,3 +33,40 @@ def get_openrouter_key() -> str | None:
 
 def get_llm_model() -> str:
     return os.environ.get("WELTMODELL_LLM_MODEL", DEFAULT_LLM_MODEL)
+
+
+# --- Deployment / Auth (Web-Betrieb) ---------------------------------------
+
+
+def is_prod() -> bool:
+    """Prod-Modus: erzwingt Secure-Cookies, deaktiviert Docs/Dev-CORS.
+
+    Alles außer WELTMODELL_ENV=production gilt als Entwicklung.
+    """
+    return os.environ.get("WELTMODELL_ENV", "development").lower() == "production"
+
+
+def get_auth_username() -> str | None:
+    return os.environ.get("AUTH_USERNAME")
+
+
+def get_auth_password() -> str | None:
+    return os.environ.get("AUTH_PASSWORD")
+
+
+def get_session_secret() -> str:
+    """Signierschlüssel fürs Session-Cookie.
+
+    In Prod Pflicht (Fail-fast) — ein geratenes Default wäre ein
+    Session-Forgery-Loch. In Dev fällt ein festes, offensichtlich
+    unsicheres Default ein, damit lokal ohne Setup gearbeitet werden kann.
+    """
+    secret = os.environ.get("SESSION_SECRET")
+    if secret:
+        return secret
+    if is_prod():
+        raise RuntimeError(
+            "SESSION_SECRET fehlt. In Produktion Pflicht — mit "
+            "`python -c 'import secrets; print(secrets.token_urlsafe(48))'` erzeugen."
+        )
+    return "dev-insecure-session-secret-do-not-use-in-production"

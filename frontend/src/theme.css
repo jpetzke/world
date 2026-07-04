@@ -672,3 +672,48 @@ button.primary.big { font-size: 14px; padding: 10px 20px; }
 .status-new_follow { color: var(--continuant); }
 .status-confirmed { color: var(--text1); }
 .status-invalid { color: var(--danger); }
+
+/* --- Login + Auth ---------------------------------------------------- */
+
+.login-screen {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 320px;
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 28px 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.login-card .wordmark { padding: 0 0 18px; }
+.login-card button.primary { margin-top: 8px; width: 100%; justify-content: center; }
+.login-card .error-box { margin: 4px 0 0; }
+
+.nav-footer {
+  margin-top: auto;
+  padding: 14px 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+}
+button.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text1);
+  font-size: 12px;
+  text-align: left;
+  width: auto;
+  cursor: pointer;
+}
+button.linklike:hover { color: var(--text0); border: none; }

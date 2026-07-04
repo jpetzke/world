@@ -31,11 +31,18 @@ def conn(database):
 
 @pytest.fixture(scope="session")
 def client(database):
+    # Auth ist jetzt aktiv (require_auth auf allen /api-Routen). Die API-Tests
+    # laufen durch den echten Login-Pfad — realistischer als ein Bypass.
+    os.environ["AUTH_USERNAME"] = "test"
+    os.environ["AUTH_PASSWORD"] = "test"
+
     from fastapi.testclient import TestClient
 
     from weltmodell.api import app
 
     with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={"username": "test", "password": "test"})
+        assert r.status_code == 200, r.text
         yield c
 
 

@@ -1,0 +1,48 @@
+# Deployment-Stack für Coolify (world.jshift.de).
+# App + Postgres (PostGIS+pgvector) in einem Compose. Migrationen laufen beim
+# App-Start automatisch (src/weltmodell/db.py) — idempotent, in
+# schema_migrations getrackt. Secrets kommen aus Coolifys Env, nie aus dem Repo.
+services:
+  db:
+    build:
+      context: ./db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-weltmodell}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD setzen}
+      POSTGRES_DB: ${POSTGRES_DB:-weltmodell}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-weltmodell} -d ${POSTGRES_DB:-weltmodell}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+    environment:
+      WELTMODELL_ENV: production
+      WELTMODELL_DSN: postgresql://${POSTGRES_USER:-weltmodell}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-weltmodell}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET setzen}
+      AUTH_USERNAME: ${AUTH_USERNAME:?AUTH_USERNAME setzen}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?AUTH_PASSWORD setzen}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      WELTMODELL_LLM_MODEL: ${WELTMODELL_LLM_MODEL:-poolside/laguna-xs-2.1:free}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Coolify verbindet seinen Traefik über das Docker-Netz auf diesen Port.
+    expose:
+      - "8100"
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

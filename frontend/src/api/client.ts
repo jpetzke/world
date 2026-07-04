@@ -21,6 +21,13 @@ export class ApiError extends Error {
   }
 }
 
+/** Wird bei 401 auf geschützten Routen gefeuert (Session abgelaufen) →
+ *  App hängt sich ein und wirft zurück auf die Login-Ansicht. */
+let onUnauthorized: (() => void) | null = null
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch('/api' + path, {
     ...init,
@@ -34,6 +41,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* kein JSON-Body */
     }
+    // Session weg: nicht bei den Auth-Routen selbst (dort ist 401 erwartet).
+    if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
     throw new ApiError(res.status, detail)
   }
   return res.json() as Promise<T>
@@ -53,7 +62,16 @@ const qs = (params: Record<string, string | number | boolean | undefined | null>
   return encoded ? `?${encoded}` : ''
 }
 
+export type AuthState = { authenticated: boolean; username: string }
+
 export const api = {
+  auth: {
+    me: () => req<AuthState>('/auth/me'),
+    login: (username: string, password: string) =>
+      req<AuthState>('/auth/login', post({ username, password })),
+    logout: () => req<{ authenticated: false }>('/auth/logout', post({})),
+  },
+
   stats: () => req<Stats>('/stats'),
   graph: (maxNodes = 400) => req<GraphSnapshot>(`/graph${qs({ max_nodes: maxNodes })}`),
   vocabulary: () => req<Vocabulary>('/registry/vocabulary'),
