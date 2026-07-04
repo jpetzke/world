@@ -60,19 +60,20 @@ def test_reject_range_violation(conn, person, source_id):
 
 
 def test_commit_with_qualifiers_and_reference(conn, person, source_id):
-    # knows-Kante temporal qualifiziert (§3/§9): seit wann kennt man sich
+    # knows-Kante mit Zeit-Qualifier: Registry-Prädikate sind dual nutzbar
+    # (Wikidata-Praxis, P580 als Qualifier); „seit wann gilt" wäre valid_from (§3)
     other = str(create_entity(conn, type_id="Person", label="Testperson Gamma")["id"])
     row = commit_statement(
         conn, subject_id=person, predicate_id="knows",
         value={"type": "entity", "object_id": other}, source_ids=[source_id],
         qualifiers=[
-            {"predicate_id": "since", "value": {"type": "datetime",
-                                                "datetime": "2020-05-01"}},
+            {"predicate_id": "beginn", "value": {"type": "datetime",
+                                                 "datetime": "2020-05-01"}},
         ],
     )
     view = entity_view(conn, person)
     stmt = next(s for s in view["statements"] if s["predicate_id"] == "knows")
-    assert {q["predicate_id"] for q in stmt["qualifiers"]} == {"since"}
+    assert {q["predicate_id"] for q in stmt["qualifiers"]} == {"beginn"}
     assert stmt["references"][0]["activity"] == "test:fixture"
     assert row["flags"] == []
 

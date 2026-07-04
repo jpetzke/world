@@ -79,8 +79,8 @@ Prädikate:
   `Nameable`). Der Shape-Check ist subtyp- und interface-fähig — Subtypen erben gratis.
 - **Scharfe, typisierte Rollen-Prädikate** (`kandidat`, `gewinner`, `betroffenes_konto`)
   statt generischem `participant` + Rollen-Qualifier. Aber keine Prädikat-Explosion:
-  Verfeinerung (`role`, `since`) ist Qualifier-Job — `works_at` + Qualifier, nie
-  `works_at_as_werkstudent`.
+  Verfeinerung (`role`) ist Qualifier-Job, zeitliche Gültigkeit (seit/bis)
+  Valid-Time-Job — `works_at` + Qualifier, nie `works_at_as_werkstudent`.
 - Pflicht: domain (Typ oder Interface), range_kind (+ range_type bei `entity`),
   cardinality. Inverse deklarieren, wo es eine Gegenrichtung gibt. `wikidata_pid` /
   `schema_org` mitgeben, wo es das extern gibt.

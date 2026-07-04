@@ -8,7 +8,7 @@ import psycopg
 
 from .embeddings import get_embedder
 from .errors import NotFoundError, ValidationError
-from .registry import get_type
+from .registry import get_type, type_interfaces
 
 
 def create_entity(
@@ -27,7 +27,7 @@ def create_entity(
         raise ValidationError(f"Typ '{type_id}' ist abstrakt — konkreten Subtyp wählen")
     embedding = None
     text = embed_text or label
-    if text:
+    if text and "Embeddable" in type_interfaces(conn, type_id):
         embedding = get_embedder().embed(f"{type_id}: {text}")
     return conn.execute(
         """INSERT INTO entity (type_id, label, embedding)

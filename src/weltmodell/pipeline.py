@@ -96,15 +96,12 @@ class RuleBasedExtractor:
             other_name = other.get("name") if isinstance(other, dict) else other
             if not other_name:
                 continue
-            qualifiers = []
+            # „seit" ist Valid-Time der Beziehung (§3), kein Qualifier
             since = other.get("since") if isinstance(other, dict) else None
-            if since:
-                qualifiers.append({"predicate_id": "since",
-                                   "value": {"type": "datetime", "datetime": since}})
             result.statements.append(
                 CandidateStatement(person, "knows",
                                    EntityRef("Person", label=other_name),
-                                   confidence=0.85, qualifiers=qualifiers)
+                                   confidence=0.85, valid_from=since)
             )
 
         for acc in raw.get("accounts", []):

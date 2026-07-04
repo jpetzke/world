@@ -27,7 +27,7 @@ def test_entity_statement_roundtrip(client):
         "subject_id": person["id"], "predicate_id": "owns_account",
         "value": {"type": "entity", "object_id": account["id"]},
         "source_ids": [source],
-        "qualifiers": [{"predicate_id": "since",
+        "qualifiers": [{"predicate_id": "beginn",
                         "value": {"type": "datetime", "datetime": "2024-01-01"}}],
     })
     assert r.status_code == 201, r.text
@@ -35,7 +35,7 @@ def test_entity_statement_roundtrip(client):
     view = client.get(f"/api/entities/{person['id']}").json()
     owns = next(s for s in view["statements"] if s["predicate_id"] == "owns_account")
     assert owns["object_label"] == "@apiaccount"
-    assert {q["predicate_id"] for q in owns["qualifiers"]} == {"since"}
+    assert {q["predicate_id"] for q in owns["qualifiers"]} == {"beginn"}
 
 
 def test_api_rejects_gate_violations(client):

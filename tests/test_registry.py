@@ -18,7 +18,9 @@ def test_seed_types(conn):
 
 def test_seed_interfaces(conn):
     assert registry.type_interfaces(conn, "Person") == {"Nameable", "Embeddable"}
-    assert registry.type_interfaces(conn, "SocialMediaAccount") == {"Nameable"}
+    assert registry.type_interfaces(conn, "SocialMediaAccount") == {"Nameable", "Embeddable"}
+    # Platform bewusst ohne Embeddable (0009): statisch kuratiert, exakter Lookup
+    assert "Embeddable" not in registry.type_interfaces(conn, "Platform")
 
 
 def test_seed_inverse_predicates(conn):

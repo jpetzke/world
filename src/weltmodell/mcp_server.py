@@ -417,7 +417,8 @@ async def welt_commit_statement(
       {"type":"number","number":…} · {"type":"quantity","number":…,"unit":…} ·
       {"type":"datetime","datetime":ISO} · {"type":"geo","lat":…,"lon":…} ·
       {"type":"json","json":…}
-    qualifiers: [{"predicate_id":…, "value":{…}}] verfeinern (role, since, …).
+    qualifiers: [{"predicate_id":…, "value":{…}}] verfeinern das Statement
+    (reguläre Registry-Prädikate, dual nutzbar — z. B. beginn als Zeit-Qualifier).
     valid_from/valid_to = Gültigkeit der BEHAUPTUNG (Ereigniszeit ist ein
     eigenes beginn/ende-Statement!). Ehrliche confidence < 1.0 ist normal.
     Kardinalitätskonflikte kommen als flags zurück, kein Reject."""

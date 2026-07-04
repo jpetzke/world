@@ -55,7 +55,8 @@ datetime-Statements (mit Provenance). `valid_from`/`valid_to` sagen, wann die
   `Nameable`). Subtypen erben gratis.
 - **Scharfe Rollen-Prädikate** (`kandidat`, `gewinner`) statt generischem
   `participant` + Rollen-Qualifier. Aber keine Explosion: Verfeinerung
-  (`role`, `since`) ist Qualifier-Job — `works_at` + Qualifier, nie
+  (`role`) ist Qualifier-Job, zeitliche Gültigkeit (seit/bis) ist
+  Valid-Time-Job (valid_from/valid_to) — `works_at` + Qualifier, nie
   `works_at_as_werkstudent`.
 - Pflicht am Prädikat: Domain, range_kind (+ range_type bei `entity`),
   Cardinality. Inverse und `wikidata_pid`/`schema_org` mitgeben, wo existent.

@@ -50,10 +50,10 @@ def test_pipeline_worked_example(conn):
     assert by_pred["email"][0]["value_text"] == "pipeline-beispiel@example.org"
     assert by_pred["alias"][0]["value_text"] == "P. Beispiel"
 
-    # knows-Kante mit temporalem Qualifier, Provenance überall (§3/§9)
+    # knows-Kante: „seit" wird Valid-Time (valid_from, §3), Provenance überall (§9)
     knows = by_pred["knows"][0]
     assert knows["object_label"] == "Pipeline Kontakt"
-    assert {q["predicate_id"] for q in knows["qualifiers"]} == {"since"}
+    assert str(knows["valid_from"]).startswith("2020-05-01")
     assert knows["references"][0]["activity"] == "apify:linkedin"
 
     # owns_account → SocialMediaAccount; darauf handle/platform/follows

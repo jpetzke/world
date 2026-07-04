@@ -56,6 +56,46 @@ def test_get_or_create_auto_matches_identical_label(conn, source_id):
     assert first == second
 
 
+def test_organization_deduplicates_via_website_url(conn, source_id):
+    # §14.5: jeder aus Quellen befüllte Typ braucht ≥1 identifying-Prädikat
+    eid, created = get_or_create_entity(
+        conn, type_id="Organization", label="BLAID GmbH",
+        identifiers={"website_url": "https://blaid.eu"}, source_ids=[source_id],
+    )
+    assert created
+    res = resolve(conn, type_id="Organization", label="BLAID",
+                  identifiers={"website_url": "https://blaid.eu"})
+    assert res["match"] == eid
+    assert res["method"] == "deterministic:website_url"
+
+
+def test_ort_deduplicates_via_wikidata_qid(conn, source_id):
+    eid, created = get_or_create_entity(
+        conn, type_id="Ort", label="Leipzig",
+        identifiers={"wikidata_qid": "Q2079"}, source_ids=[source_id],
+    )
+    assert created
+    res = resolve(conn, type_id="Ort", label="Stadt Leipzig",
+                  identifiers={"wikidata_qid": "Q2079"})
+    assert res["match"] == eid
+    assert res["method"] == "deterministic:wikidata_qid"
+
+
+def test_only_embeddable_types_get_vectors(conn):
+    # Embeddable trägt Semantik (0009): Platform ist bewusst nicht Embeddable
+    org = create_entity(conn, type_id="Organization", label="Vektor Org")
+    platform = create_entity(conn, type_id="Platform", label="Vektor Platform")
+    rows = {
+        str(r["id"]): r["embedding"]
+        for r in conn.execute(
+            "SELECT id, embedding FROM entity WHERE id = ANY(%s)",
+            ([org["id"], platform["id"]],),
+        ).fetchall()
+    }
+    assert rows[str(org["id"])] is not None
+    assert rows[str(platform["id"])] is None
+
+
 def test_merge_preserves_statements_and_provenance(conn, source_id):
     a = str(create_entity(conn, type_id="Person", label="Merge Person A")["id"])
     b = str(create_entity(conn, type_id="Person", label="Merge Person B")["id"])

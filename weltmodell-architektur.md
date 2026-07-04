@@ -450,8 +450,9 @@ Ereigniszeit nie in die Bitemporalitäts-Spalten quetschen.
 - **Scharfe, typisierte Rollen-Prädikate** (`kandidat`, `gewinner`, `betroffenes_konto`)
   statt generischem `participant` + Rollen-Qualifier (Palantir-Link-Types-Stil). Die
   Registry soll die Semantik tragen, nicht Konvention in Qualifier-Strings.
-- **Aber keine Prädikat-Explosion:** Verfeinerung eines Statements (`role`, `since`,
-  `hours`) ist Qualifier-Job. `works_at` + Qualifier, nie `works_at_as_werkstudent`.
+- **Aber keine Prädikat-Explosion:** Verfeinerung eines Statements (`role`, `hours`)
+  ist Qualifier-Job, zeitliche Gültigkeit (seit/bis) Valid-Time-Job
+  (valid_from/valid_to). `works_at` + Qualifier, nie `works_at_as_werkstudent`.
 - **Pflichtfelder:** domain (Typ *oder* Interface), range_kind (+ range_type bei
   `entity`), cardinality. Inverse deklarieren, wo es eine Gegenrichtung gibt
   (Gegenrichtung wird automatisch eingetragen; symmetrisch = inverse auf sich selbst).
