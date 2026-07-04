@@ -230,6 +230,33 @@ def test_read_only_scope_blocks_writes(mcp_client):
     assert "welt:write" in result["content"][0]["text"]
 
 
+def test_prm_advertises_write_scope(mcp_client):
+    # Regression: die Protected-Resource-Metadata muss welt:write als supported
+    # annoncieren — sonst fragt claude.ai nur welt:read an und bekommt nie einen
+    # schreibfähigen Token. required_scopes bleibt welt:read (Lesen unberührt).
+    for path in (
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+    ):
+        scopes = mcp_client.get(path).json()["scopes_supported"]
+        assert "welt:read" in scopes and "welt:write" in scopes, f"{path}: {scopes}"
+
+
+def test_client_adopting_advertised_scopes_can_write(mcp_client):
+    # Realer claude.ai-Pfad: Client liest die PRM und fragt exakt die dort
+    # annoncierten Scopes an. Mit dem Fix enthält das welt:write → Token kann
+    # nach dem Verfassungs-Ack schreiben.
+    scopes = mcp_client.get(
+        "/.well-known/oauth-protected-resource").json()["scopes_supported"]
+    _, _, _, tokens = _dance(mcp_client, scope=" ".join(scopes))
+    assert "welt:write" in tokens["scope"]
+    at = tokens["access_token"]
+    _tool(mcp_client, at, "welt_constitution")  # Verfassungs-Gate öffnen
+    result = _tool(mcp_client, at, "welt_create_entity",
+                   {"type_id": "Person", "label": "Advertised Scope"})
+    assert result.get("isError") is not True, result
+
+
 def test_code_reuse_rejected(mcp_client):
     client_id, code, verifier, _ = _dance(mcp_client)
     r = mcp_client.post("/token", data={

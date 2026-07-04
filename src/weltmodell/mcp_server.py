@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 import anyio
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.routes import create_protected_resource_routes
 from mcp.server.auth.settings import (
     AuthSettings,
     ClientRegistrationOptions,
@@ -29,6 +30,7 @@ from mcp.server.auth.settings import (
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import AnyHttpUrl
 from pydantic_core import to_jsonable_python
 from starlette.routing import Route
 
@@ -609,26 +611,41 @@ async def welt_import_follower_list(
 
 
 def build_mcp_asgi():
-    """MCP-Sub-App inkl. Well-Known-Aliasse.
+    """MCP-Sub-App inkl. Well-Known-Aliasse und korrigierter PRM-Scopes.
 
     Das SDK serviert die PRM nur pfad-suffigiert (…/oauth-protected-resource/mcp)
     und die AS-Metadata nur unsuffigiert — Clients proben alle vier Varianten,
     also beide fehlenden als Alias nachrüsten (Handler wiederverwendet, damit
-    nichts driftet)."""
+    nichts driftet).
+
+    Zudem annonciert das SDK als PRM-`scopes_supported` nur die `required_scopes`
+    (welt:read); Clients (claude.ai) fragen dann nie welt:write an und bekommen
+    einen read-only-Token. Darum die PRM-Route durch eine ersetzen, die beide
+    `SCOPES` als supported meldet — required_scopes bleibt welt:read, damit
+    welt:write optional ist und Lesen nicht bricht."""
     app = mcp.streamable_http_app()
-    by_path = {r.path: r for r in app.router.routes if isinstance(r, Route)}
-    prm = by_path.get("/.well-known/oauth-protected-resource/mcp")
-    if prm is not None:
-        app.router.routes.append(
-            Route("/.well-known/oauth-protected-resource", prm.endpoint,
-                  methods=["GET", "OPTIONS"])
-        )
+    prm_path = "/.well-known/oauth-protected-resource/mcp"
+    routes = [r for r in app.router.routes
+              if not (isinstance(r, Route) and r.path == prm_path)]
+    # PRM neu bauen (gleiche URLs wie die AuthSettings), aber mit beiden Scopes.
+    prm_routes = create_protected_resource_routes(
+        resource_url=AnyHttpUrl(f"{_PUBLIC_URL}/mcp"),
+        authorization_servers=[AnyHttpUrl(_PUBLIC_URL)],
+        scopes_supported=SCOPES,
+    )
+    routes.extend(prm_routes)
+    routes.append(  # Alias ohne Pfad-Suffix (Clients proben beide Varianten)
+        Route("/.well-known/oauth-protected-resource", prm_routes[0].endpoint,
+              methods=["GET", "OPTIONS"])
+    )
+    by_path = {r.path: r for r in routes if isinstance(r, Route)}
     meta = by_path.get("/.well-known/oauth-authorization-server")
     if meta is not None:
-        app.router.routes.append(
+        routes.append(
             Route("/.well-known/oauth-authorization-server/mcp", meta.endpoint,
                   methods=["GET", "OPTIONS"])
         )
+    app.router.routes = routes
     return app
 
 
