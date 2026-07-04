@@ -5,10 +5,17 @@ import type { Kind } from '../api/types'
 
 cytoscape.use(d3Force)
 
+/* Kosmograph-Palette — muss mit den Tokens in theme.css übereinstimmen
+   (Cytoscape braucht konkrete Farbwerte, keine CSS-Variablen). */
 export const NODE_COLORS: Record<Kind, string> = {
-  continuant: '#5fb0d4',
-  occurrent: '#e08e39',
+  continuant: '#56b8ff',
+  occurrent: '#ffa044',
 }
+const EDGE = '#3a4f78'
+const EDGE_HL = '#7aa2d8'
+const TEXT_DIM = '#98a2ba'
+const TEXT_BRIGHT = '#ecf0fa'
+const GOLD = '#ffd166'
 
 export const kindColor = (kind: Kind | undefined) => NODE_COLORS[kind ?? 'continuant']
 export const kindShape = (kind: Kind | undefined) =>
@@ -56,7 +63,7 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
     selector: 'node',
     style: {
       label: 'data(label)',
-      color: '#9aa1b0',
+      color: TEXT_DIM,
       'font-size': 10,
       'font-family': 'IBM Plex Mono, monospace',
       // LOD: Labels verschwinden automatisch, wenn zu weit rausgezoomt.
@@ -77,8 +84,8 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
       'curve-style': 'bezier',
       'target-arrow-shape': 'triangle',
       'arrow-scale': 0.8,
-      'line-color': '#33405a',
-      'target-arrow-color': '#33405a',
+      'line-color': EDGE,
+      'target-arrow-color': EDGE,
       width: 1.5,
       // Konfidenz → Deckkraft (per mapData, damit .faded es überschreiben kann).
       // ponytail: mapData ist ein Cytoscape-Feature, das die Typen nicht kennen.
@@ -90,31 +97,31 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   // Startknoten der Ego-Sicht: klar als Anker erkennbar.
   {
     selector: 'node.start-node',
-    style: { 'border-width': 3, 'border-color': '#d4b35b' },
+    style: { 'border-width': 3, 'border-color': GOLD },
   },
   // Fokus + Kontext: Nachbarschaft leuchtet, der Rest tritt zurück.
   {
     selector: '.faded',
-    style: { opacity: 0.08, 'text-opacity': 0 },
+    style: { opacity: 0.08, 'text-opacity': 0, 'underlay-opacity': 0 },
   },
   {
     selector: 'node.hl-node',
-    style: { 'border-width': 2, 'border-color': '#e9e4d6' },
+    style: { 'border-width': 2, 'border-color': TEXT_BRIGHT },
   },
   {
     selector: 'edge.hl-edge',
     style: {
       opacity: 1,
-      'line-color': '#7d8aa8',
-      'target-arrow-color': '#7d8aa8',
+      'line-color': EDGE_HL,
+      'target-arrow-color': EDGE_HL,
       width: 2,
       label: 'data(label)',
-      color: '#c7cede',
+      color: '#c9d6ee',
       'font-size': 9,
       'font-family': 'IBM Plex Mono, monospace',
       'min-zoomed-font-size': 6,
       'text-rotation': 'autorotate',
-      'text-background-color': '#10141d',
+      'text-background-color': '#070b14',
       'text-background-opacity': 0.85,
       'text-background-padding': '2px',
     },
@@ -129,11 +136,11 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   // Suchtreffer: goldener Ring, auch wenn nicht im Fokus.
   {
     selector: 'node.match',
-    style: { 'border-width': 3, 'border-color': '#d4b35b' },
+    style: { 'border-width': 3, 'border-color': GOLD },
   },
   {
     selector: 'node:selected',
-    style: { 'border-width': 3, 'border-color': '#e9e4d6' },
+    style: { 'border-width': 3, 'border-color': TEXT_BRIGHT },
   },
 ]
 

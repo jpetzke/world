@@ -8,6 +8,9 @@ import '@fontsource/ibm-plex-sans/400.css'
 import '@fontsource/ibm-plex-sans/600.css'
 import './theme.css'
 import App from './App.tsx'
+import { installSheen } from './lib/sheen'
+
+installSheen()
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },

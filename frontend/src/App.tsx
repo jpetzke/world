@@ -2,7 +2,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { api, setUnauthorizedHandler } from './api/client'
+import { AskOrb } from './components/AskOrb'
 import { Loading } from './components/bits'
+import { SpaceBackdrop } from './components/SpaceBackdrop'
 import { ApiKeysPage } from './pages/ApiKeysPage'
 import { CreatePage } from './pages/CreatePage'
 import { Dashboard } from './pages/Dashboard'
@@ -32,13 +34,13 @@ export default function App() {
   }, [qc])
 
   if (me.isLoading) {
-    return <div className="login-screen"><Loading label="Lade …" /></div>
+    return <><SpaceBackdrop /><div className="login-screen"><Loading label="Lade …" /></div></>
   }
   if (!me.data) {
-    return <LoginPage onSuccess={() => qc.invalidateQueries({ queryKey: ['me'] })} />
+    return <><SpaceBackdrop /><LoginPage onSuccess={() => qc.invalidateQueries({ queryKey: ['me'] })} /></>
   }
 
-  return <Shell username={me.data.username} />
+  return <><SpaceBackdrop /><Shell username={me.data.username} /></>
 }
 
 function Shell({ username }: { username: string }) {
@@ -93,6 +95,7 @@ function Shell({ username }: { username: string }) {
           <Route path="/keys" element={<ApiKeysPage />} />
         </Routes>
       </main>
+      <AskOrb />
     </div>
   )
 }

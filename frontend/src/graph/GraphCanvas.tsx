@@ -90,7 +90,15 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         size: Math.min(56, 12 + Math.round(Math.sqrt(n.degree) * 4)),
         kind,
       },
-      style: { 'background-color': kindColor(kind), shape: kindShape(kind) },
+      style: {
+        'background-color': kindColor(kind),
+        shape: kindShape(kind),
+        // Halo (§2): Licht am Himmelskörper, nicht am Chrome.
+        'underlay-color': kindColor(kind),
+        'underlay-opacity': 0.16,
+        'underlay-padding': 8,
+        'underlay-shape': 'ellipse',
+      },
     }
   }, [kindOf])
   const toEdge = (e: GraphEdge): cytoscape.ElementDefinition => ({
