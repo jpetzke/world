@@ -3,7 +3,9 @@ import {
   forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef,
 } from 'react'
 import type { Kind } from '../api/types'
-import { GRAPH_OPTIONS, GRAPH_STYLE, graphLayout, kindColor, kindShape } from './style'
+import {
+  GRAPH_OPTIONS, GRAPH_STYLE, graphLayout, kindColor, kindEdgeTint, kindGradient, kindShape,
+} from './style'
 
 export interface GraphNode {
   id: string
@@ -81,40 +83,49 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
   // nachgeladene Ego-Knoten exakt wie die des Gerüsts aussehen.
   const toNode = useCallback((n: GraphNode): cytoscape.ElementDefinition => {
     const kind = kindOf(n.type_id) ?? 'continuant'
+    // Grad → Größe: Hubs fallen auf, sqrt dämpft Ausreißer, Deckel hält
+    // Hubs handhabbar (sonst fressen sie den halben Canvas + kollidieren).
+    const size = Math.min(64, 12 + Math.round(Math.sqrt(n.degree) * 4.5))
     return {
       data: {
         id: n.id,
         label: n.label ?? n.id.slice(0, 8),
-        // Grad → Größe: Hubs fallen auf, sqrt dämpft Ausreißer, Deckel hält
-        // Hubs handhabbar (sonst fressen sie den halben Canvas + kollidieren).
-        size: Math.min(56, 12 + Math.round(Math.sqrt(n.degree) * 4)),
+        size,
         kind,
       },
       style: {
-        'background-color': kindColor(kind),
         shape: kindShape(kind),
-        // Halo (§2): Licht am Himmelskörper, nicht am Chrome.
+        // Himmelskörper statt Scheibe: heller Kern → Farbe → dunkler Rand.
+        'background-fill': 'radial-gradient',
+        'background-gradient-stop-colors': kindGradient(kind),
+        'background-gradient-stop-positions': '0 38 100',
+        // Halo (§2): Licht am Himmelskörper, nicht am Chrome — wächst mit ihm.
         'underlay-color': kindColor(kind),
-        'underlay-opacity': 0.16,
-        'underlay-padding': 8,
+        'underlay-opacity': 0.18,
+        'underlay-padding': Math.max(7, Math.round(size * 0.32)),
         'underlay-shape': 'ellipse',
       },
     }
   }, [kindOf])
-  const toEdge = (e: GraphEdge): cytoscape.ElementDefinition => ({
+  // Kanten-Verlauf braucht die Kinds beider Endpunkte — Lookup kommt vom Aufrufer.
+  const toEdge = (e: GraphEdge, kindAt: (id: string) => Kind): cytoscape.ElementDefinition => ({
     data: {
       id: e.id,
       source: e.subject_id,
       target: e.object_id,
       label: e.predicate_id,
       confidence: e.confidence,
+      grad: `${kindEdgeTint(kindAt(e.subject_id))} ${kindEdgeTint(kindAt(e.object_id))}`,
+      tcol: kindEdgeTint(kindAt(e.object_id)),
     },
   })
 
-  const elements = useMemo<cytoscape.ElementDefinition[]>(
-    () => [...nodes.map(toNode), ...edges.map(toEdge)],
-    [nodes, edges, toNode],
-  )
+  const elements = useMemo<cytoscape.ElementDefinition[]>(() => {
+    const kinds = new Map(nodes.map((n) => [n.id, kindOf(n.type_id) ?? 'continuant'] as const))
+    const kindAt = (id: string) => kinds.get(id) ?? 'continuant'
+    return [...nodes.map(toNode), ...edges.map((e) => toEdge(e, kindAt))]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, toNode])
 
   // Fokus + Kontext + Filter aus einer Hand: eine Quelle der Wahrheit.
   const paint = useCallback(() => {
@@ -189,8 +200,16 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
       ...GRAPH_OPTIONS,
     })
     cyRef.current = cy
-    cy.on('mouseover', 'node', (e) => { hoverRef.current = e.target.id(); paint() })
-    cy.on('mouseout', 'node', () => { hoverRef.current = null; paint() })
+    cy.on('mouseover', 'node', (e) => {
+      hoverRef.current = e.target.id()
+      if (containerRef.current) containerRef.current.style.cursor = 'pointer'
+      paint()
+    })
+    cy.on('mouseout', 'node', () => {
+      hoverRef.current = null
+      if (containerRef.current) containerRef.current.style.cursor = ''
+      paint()
+    })
     cy.on('tap', 'node', (e) => {
       clickRef.current = e.target.id()
       onSelectRef.current?.(e.target.id())
@@ -264,9 +283,18 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCa
         position: { x: seed.x + (Math.random() - 0.5) * 80, y: seed.y + (Math.random() - 0.5) * 80 },
       })
     }
+    const overlayKinds = new Map(
+      overlay.nodes.map((n) => [n.id, kindOf(n.type_id) ?? 'continuant'] as const),
+    )
+    const kindAt = (id: string): Kind => {
+      const known = overlayKinds.get(id)
+      if (known) return known
+      const existing = cy.$id(id)
+      return existing.nonempty() ? (existing.data('kind') as Kind) : 'continuant'
+    }
     const newEdges: cytoscape.ElementDefinition[] = overlay.edges
       .filter((e) => cy.$id(e.id).empty())
-      .map((e) => ({ group: 'edges' as const, data: toEdge(e).data, classes: 'overlay' }))
+      .map((e) => ({ group: 'edges' as const, data: toEdge(e, kindAt).data, classes: 'overlay' }))
 
     cy.add(newNodes)
     cy.add(newEdges)

@@ -11,13 +11,24 @@ export const NODE_COLORS: Record<Kind, string> = {
   continuant: '#56b8ff',
   occurrent: '#ffa044',
 }
-const EDGE = '#3a4f78'
+/* Himmelskörper: Radial-Gradient heller Kern → Farbe → dunkler Rand (Sphäre). */
+const NODE_GRADIENTS: Record<Kind, string> = {
+  continuant: '#e8f7ff #56b8ff #143c60',
+  occurrent: '#fff1dc #ffa044 #7a3f12',
+}
+/* Kanten leiser als Knoten: gedämpfte Endpunkt-Farben als Verlauf. */
+const EDGE_TINTS: Record<Kind, string> = {
+  continuant: '#33639c',
+  occurrent: '#8f5b26',
+}
 const EDGE_HL = '#7aa2d8'
 const TEXT_DIM = '#98a2ba'
 const TEXT_BRIGHT = '#ecf0fa'
 const GOLD = '#ffd166'
 
 export const kindColor = (kind: Kind | undefined) => NODE_COLORS[kind ?? 'continuant']
+export const kindGradient = (kind: Kind | undefined) => NODE_GRADIENTS[kind ?? 'continuant']
+export const kindEdgeTint = (kind: Kind | undefined) => EDGE_TINTS[kind ?? 'continuant']
 export const kindShape = (kind: Kind | undefined) =>
   kind === 'occurrent' ? 'diamond' : 'ellipse'
 
@@ -72,10 +83,14 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
       'text-margin-y': 6,
       'text-wrap': 'ellipsis',
       'text-max-width': '140px',
+      // Outline hebt Labels vom Sternfeld/Kantengewirr ab.
+      'text-outline-color': '#04060c',
+      'text-outline-width': 2,
+      'text-outline-opacity': 0.9,
       width: 'data(size)',
       height: 'data(size)',
-      'transition-property': 'opacity, border-width',
-      'transition-duration': 120,
+      'transition-property': 'opacity, border-width, underlay-opacity',
+      'transition-duration': 160,
     },
   },
   {
@@ -84,9 +99,14 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
       'curve-style': 'bezier',
       'target-arrow-shape': 'triangle',
       'arrow-scale': 0.8,
-      'line-color': EDGE,
-      'target-arrow-color': EDGE,
-      width: 1.5,
+      // Verlauf zwischen den (gedämpften) Endpunkt-Farben: die Kante erzählt,
+      // was sie verbindet — bleibt aber leiser als die Knoten (Ref B).
+      'line-fill': 'linear-gradient',
+      'line-gradient-stop-colors': 'data(grad)' as unknown as string[],
+      'line-gradient-stop-positions': '0 100' as unknown as number[],
+      'target-arrow-color': 'data(tcol)' as unknown as string,
+      // Konfidenz → Breite UND Deckkraft: Licht ∝ Sicherheit (§2).
+      width: 'mapData(confidence, 0, 1, 1, 2.4)' as unknown as number,
       // Konfidenz → Deckkraft (per mapData, damit .faded es überschreiben kann).
       // ponytail: mapData ist ein Cytoscape-Feature, das die Typen nicht kennen.
       opacity: 'mapData(confidence, 0, 1, 0.4, 0.9)' as unknown as number,
@@ -97,7 +117,7 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   // Startknoten der Ego-Sicht: klar als Anker erkennbar.
   {
     selector: 'node.start-node',
-    style: { 'border-width': 3, 'border-color': GOLD },
+    style: { 'border-width': 3, 'border-color': GOLD, 'underlay-opacity': 0.34 },
   },
   // Fokus + Kontext: Nachbarschaft leuchtet, der Rest tritt zurück.
   {
@@ -106,12 +126,18 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   },
   {
     selector: 'node.hl-node',
-    style: { 'border-width': 2, 'border-color': TEXT_BRIGHT },
+    style: {
+      'border-width': 2,
+      'border-color': TEXT_BRIGHT,
+      color: TEXT_BRIGHT,
+      'underlay-opacity': 0.34,
+    },
   },
   {
     selector: 'edge.hl-edge',
     style: {
       opacity: 1,
+      'line-fill': 'solid',
       'line-color': EDGE_HL,
       'target-arrow-color': EDGE_HL,
       width: 2,
@@ -136,11 +162,11 @@ export const GRAPH_STYLE: cytoscape.StylesheetJson = [
   // Suchtreffer: goldener Ring, auch wenn nicht im Fokus.
   {
     selector: 'node.match',
-    style: { 'border-width': 3, 'border-color': GOLD },
+    style: { 'border-width': 3, 'border-color': GOLD, 'underlay-opacity': 0.34 },
   },
   {
     selector: 'node:selected',
-    style: { 'border-width': 3, 'border-color': TEXT_BRIGHT },
+    style: { 'border-width': 3, 'border-color': TEXT_BRIGHT, 'underlay-opacity': 0.34 },
   },
 ]
 
