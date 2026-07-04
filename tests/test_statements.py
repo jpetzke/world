@@ -135,3 +135,74 @@ def test_contradiction_coexists_via_rank_and_bitemporality(conn, person, source_
     assert len(old_owns) == 1
     assert str(old_owns[0]["object_id"]) == acc_old
     assert old_owns[0]["rank"] == "normal"
+
+
+def test_finance_cross_domain_chain(conn, person, source_id):
+    """§10-Kette real: Person → Unternehmen → Übernahme (Occurrent) über EINE Struktur."""
+    firma = str(create_entity(conn, type_id="Unternehmen", label="TSMC")["id"])
+    papier = str(create_entity(conn, type_id="Wertpapier", label="TSMC ADR")["id"])
+    deal = str(create_entity(conn, type_id="Übernahme", label="Testübernahme")["id"])
+
+    # Person arbeitet_bei Unternehmen (Range Organization, Subtyp erlaubt)
+    # mit rolle-Qualifier statt works_at_as_X (§14.3)
+    commit_statement(
+        conn, subject_id=person, predicate_id="arbeitet_bei",
+        value={"type": "entity", "object_id": firma}, source_ids=[source_id],
+        qualifiers=[{"predicate_id": "rolle", "value": {"type": "string", "text": "CTO"}}],
+    )
+    # beteiligt_an mit anteil_prozent-Qualifier (Qualifier-only via Quantifiable-Domain)
+    commit_statement(
+        conn, subject_id=person, predicate_id="beteiligt_an",
+        value={"type": "entity", "object_id": firma}, source_ids=[source_id],
+        confidence=0.8,
+        qualifiers=[{"predicate_id": "anteil_prozent",
+                     "value": {"type": "number", "number": 5.9}}],
+    )
+    # Wertpapier: identifying isin + notiert_an mit ticker-Qualifier (P249 an P414)
+    commit_statement(
+        conn, subject_id=papier, predicate_id="isin",
+        value={"type": "string", "text": "US8740391003"}, source_ids=[source_id],
+    )
+    commit_statement(
+        conn, subject_id=papier, predicate_id="emittiert_von",
+        value={"type": "entity", "object_id": firma}, source_ids=[source_id],
+    )
+    # Übernahme: n-äre Rollen + geerbtes beginn (Domain Ereignis) + quantity-Kaufpreis
+    commit_statement(
+        conn, subject_id=deal, predicate_id="übernahmeziel",
+        value={"type": "entity", "object_id": firma}, source_ids=[source_id],
+    )
+    commit_statement(
+        conn, subject_id=deal, predicate_id="käufer",
+        value={"type": "entity", "object_id": person}, source_ids=[source_id],
+    )
+    commit_statement(
+        conn, subject_id=deal, predicate_id="beginn",
+        value={"type": "datetime", "datetime": "2026-01-15T00:00:00Z"},
+        source_ids=[source_id],
+    )
+    commit_statement(
+        conn, subject_id=deal, predicate_id="kaufpreis",
+        value={"type": "quantity", "number": 1_000_000, "unit": "EUR"},
+        source_ids=[source_id],
+    )
+
+    # wikidata_qid jetzt Nameable-weit: gilt für Unternehmen (vorher nur Ort)
+    commit_statement(
+        conn, subject_id=firma, predicate_id="wikidata_qid",
+        value={"type": "string", "text": "Q713418"}, source_ids=[source_id],
+    )
+
+    view = entity_view(conn, deal)
+    preds = {s["predicate_id"] for s in view["statements"]}
+    assert {"übernahmeziel", "käufer", "beginn", "kaufpreis"} <= preds
+
+
+def test_finance_range_enforced(conn, person, source_id):
+    # übernahmeziel verlangt Unternehmen — eine Person ist keins
+    deal = str(create_entity(conn, type_id="Übernahme", label="Fehlübernahme")["id"])
+    with pytest.raises(ValidationError, match="Range-Verstoß"):
+        commit_statement(
+            conn, subject_id=deal, predicate_id="übernahmeziel",
+            value={"type": "entity", "object_id": person}, source_ids=[source_id],
+        )

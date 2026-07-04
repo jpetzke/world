@@ -90,3 +90,22 @@ def test_gate_rejects_duplicate_type_proposal(conn):
             conn, type_id="Person", parent_id="Person", kind="continuant",
             label="Person", proposed_by="pytest",
         )
+
+
+def test_finance_seed_0011(conn):
+    # Unternehmen im Agent-Ast, Übernahme im Ereignis-Ast, Wertpapier eigene Wurzel
+    assert registry.type_ancestors(conn, "Unternehmen") == [
+        "Unternehmen", "Organization", "Agent"]
+    assert registry.get_type(conn, "Übernahme")["kind"] == "occurrent"
+    assert registry.type_ancestors(conn, "Wertpapier") == ["Wertpapier"]
+    # Interfaces: geerbt über Parent-Kette (Unternehmen, Übernahme), direkt (Wertpapier)
+    assert registry.type_interfaces(conn, "Unternehmen") == {"Nameable", "Embeddable"}
+    assert registry.type_interfaces(conn, "Übernahme") == {"Nameable", "Embeddable"}
+    assert registry.type_interfaces(conn, "Wertpapier") == {"Nameable", "Embeddable"}
+    # Dedup-Pfade (§14.4): harte Keys für Wertpapier und Organization-Ast
+    assert registry.get_predicate(conn, "isin")["identifying"] is True
+    assert registry.get_predicate(conn, "lei")["identifying"] is True
+    # wikidata_qid von Ort auf Nameable angehoben (0011, Rationale 5)
+    qid = registry.get_predicate(conn, "wikidata_qid")
+    assert qid["domain_type"] is None
+    assert qid["domain_interface"] == "Nameable"
