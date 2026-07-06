@@ -23,10 +23,12 @@ eigenes dazu.
    eine bessere Behauptung: `welt_deprecate_statement` bzw. neuer Commit
    (+ `welt_set_rank`); Widersprüche koexistieren via Rank + Confidence +
    Bitemporalität, Historie bleibt. Kardinalitätskonflikt ist ein Flag, kein
-   Fehler. Genau EINE Ausnahme: `welt_fix_statement` korrigiert einen echten
-   FEHLER im Record in place (Erratum, überschreibt/löscht) — nur wenn die Zeile
-   schlicht falsch war und nie hätte existieren dürfen, niemals um einen
-   Zeitverlauf zu modellieren.
+   Fehler. Einzige Ausnahme ist das ERRATUM für echte Fehler im Record —
+   Dinge, die so nie hätten existieren dürfen, niemals um einen Zeitverlauf
+   zu modellieren: `welt_fix_statement` korrigiert/löscht ein Statement in
+   place; `welt_fix_entity` löscht einen versehentlich angelegten Anker, aber
+   nur ohne aktive (nicht-deprecated) Statements — benutzte Dubletten gehören
+   zu `welt_merge_entities`. Beide verlangen einen reason (Audit).
 5. **Continuant/Occurrent-Split ist heilig.** Existiert es durch die Zeit mit
    Identität → Continuant. Passiert es in einem Zeitfenster → Occurrent
    (`Ereignis`-Ast). Nie vermischen.
@@ -105,6 +107,19 @@ datetime-Statements (mit Provenance). `valid_from`/`valid_to` sagen, wann die
   `entity` (`object_id`) · `string` (`text`) · `number` (`number`) ·
   `quantity` (`number`+`unit`) · `datetime` (`datetime`, ISO) ·
   `geo` (`lat`+`lon`) · `json` (`json`).
+- **Qualifier-Validierung:** Qualifier nutzen reguläre Registry-Prädikate dual
+  (Wikidata-Praxis: `beginn`/P580 hängt als Qualifier an fremden Statements).
+  Deshalb ist der Domain-Check für Qualifier BEWUSST ausgesetzt — eine Domain
+  bezieht sich auf das Subjekt eines Haupt-Statements. Validiert wird der
+  range_kind (Werttyp muss dem Prädikat entsprechen; nur entity/string/
+  number/datetime sind als Qualifier-Werte möglich).
+- **Statement-Suche (`welt_query`):** viertes Standbein neben Search,
+  Entity-View und Traverse. Default-Sicht wie überall: aktuell
+  (`system_to IS NULL`), deprecated ausgeblendet; `rank` filtert exakt,
+  `valid_at`/`system_at` reisen wie in `welt_entity`. Aggregation ist bewusst
+  minimal: `count`/`sum`/`avg` (sum/avg nur über number/quantity, bei
+  quantity pro unit gruppiert), `group_by` subject/object — kein
+  Analytics-System.
 - Schreibende Importe: erst Preview, dann Commit. Unsicheres mit ehrlicher
   Confidence committen statt weglassen; Ränge (`preferred`/`normal`/
   `deprecated`) ordnen Widersprüche.

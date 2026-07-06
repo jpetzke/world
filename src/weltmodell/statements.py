@@ -227,6 +227,17 @@ def _insert_qualifier(conn: psycopg.Connection, statement_id: str, q: dict) -> N
             f"Unbekanntes Qualifier-Prädikat '{q['predicate_id']}' (Registry, §2.3)"
         )
     cols = normalize_value(q["value"])
+    # Festlegung (Verfassung „Qualifier-Validierung"): Qualifier validieren NUR
+    # range_kind — der Domain-Check ist BEWUSST ausgesetzt, kein Zufall des
+    # Codepfads. Qualifier nutzen Registry-Prädikate dual (Wikidata-Praxis:
+    # P580/beginn hängt als Qualifier an fremden Statements); eine Domain
+    # bezieht sich auf das Subjekt eines Haupt-Statements, nicht auf das
+    # qualifizierte Statement.
+    if cols["value_type"] != pred["range_kind"]:
+        raise ValidationError(
+            f"Qualifier-Range-Verstoß: '{q['predicate_id']}' erwartet "
+            f"value_type '{pred['range_kind']}', bekam '{cols['value_type']}'"
+        )
     if cols["value_type"] not in ("entity", "string", "number", "datetime"):
         raise ValidationError(
             f"Qualifier unterstützt value_type '{cols['value_type']}' nicht"

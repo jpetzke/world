@@ -37,7 +37,7 @@ from starlette.routing import Route
 from . import follower_import, pipeline, queries, registry, resolution, statements
 from .config import get_public_url, is_prod
 from .db import get_conn
-from .entities import create_entities, create_entity
+from .entities import create_entities, create_entity, fix_entity
 from .errors import NotFoundError, RegistryError, ValidationError
 from .mcp_auth import SCOPES, WeltOAuthProvider
 
@@ -302,6 +302,41 @@ async def welt_entity(
 
 
 @mcp.tool()
+async def welt_query(
+    subject_id: str | None = None,
+    predicate_id: str | None = None,
+    object_id: str | None = None,
+    value_text: str | None = None,
+    min_confidence: float | None = None,
+    rank: Literal["preferred", "normal", "deprecated"] | None = None,
+    valid_at: str | None = None,
+    system_at: str | None = None,
+    limit: int = 25,
+    offset: int = 0,
+    aggregate: Literal["count", "sum", "avg"] | None = None,
+    group_by: Literal["subject", "object"] | None = None,
+) -> dict[str, Any]:
+    """Statement-zentrierte Suche — viertes Standbein neben welt_search,
+    welt_entity und welt_traverse. Alle Filter optional und kombinierbar:
+    subject_id/object_id (folgen der Merge-Kette), predicate_id, value_text
+    (exakt), min_confidence, rank (exakt; ohne rank ist deprecated
+    ausgeblendet). Zeitreisen wie welt_entity: valid_at = „was war am Datum D
+    wahr?", system_at = „was glaubte ich am Datum D?". Liefert Statements mit
+    Qualifiern + Quellen (Serialisierung wie welt_entity) und total.
+    aggregate=count|sum|avg statt der Liste; sum/avg nur über number- und
+    quantity-Werte, bei quantity pro unit gruppiert; group_by=subject|object
+    gruppiert nach Entity."""
+    return await _run(
+        partial(queries.query_statements, subject_id=subject_id,
+                predicate_id=predicate_id, object_id=object_id,
+                value_text=value_text, min_confidence=min_confidence,
+                rank=rank, valid_at=valid_at, system_at=system_at,
+                limit=min(limit, 200), offset=offset,
+                aggregate=aggregate, group_by=group_by)
+    )
+
+
+@mcp.tool()
 async def welt_timeline(entity_id: str) -> list[dict[str, Any]]:
     """Zeitleiste einer Entity: echte Ereignisse (Occurrents, die sie
     referenzieren) + abgeleitete Meilensteine (datetime-Statements,
@@ -533,6 +568,21 @@ async def welt_fix_statement(
         partial(statements.fix_statement, statement_id=statement_id, reason=reason,
                 delete=delete, value=value, rank=rank, confidence=confidence,
                 valid_from=valid_from, valid_to=valid_to)
+    )
+
+
+@mcp.tool()
+async def welt_fix_entity(entity_id: str, reason: str) -> dict[str, Any]:
+    """ERRATUM: versehentlich angelegten Entity-Anker löschen — das
+    Anker-Pendant zu welt_fix_statement, NUR für echte Fehler (Tippfehler-
+    Anlage, falscher Typ, Testrest). Löscht nur, wenn die Entity null
+    eingehende und null ausgehende nicht-deprecated Statements hat; sonst
+    Fehler — Dubletten gehören zu welt_merge_entities (verlustfrei), nicht
+    hierher. reason ist Pflicht und wird geloggt (Audit, wie bei
+    welt_fix_statement)."""
+    _require_write()
+    return await _run(
+        partial(fix_entity, entity_id=entity_id, reason=reason)
     )
 
 

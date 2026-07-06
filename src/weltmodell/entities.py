@@ -124,6 +124,60 @@ def refresh_entity_label(
         )
 
 
+def fix_entity(conn: psycopg.Connection, entity_id: str, *, reason: str) -> dict:
+    """ERRATUM für versehentlich angelegte Anker — Pendant zu fix_statement,
+    zweite bewusste Ausnahme von Invariante 4.
+
+    Löscht die Entity NUR, wenn sie null eingehende und null ausgehende
+    nicht-deprecated Statements hat — sonst ist sie in Benutzung und der
+    richtige Weg ist welt_merge_entities (Dublette) bzw. Kuration. Reste des
+    Irrtums (historische/deprecated eigene Zeilen) werden mitgelöscht
+    (Qualifier/References via ON DELETE CASCADE). Blockiert, wenn fremde
+    Qualifier auf den Anker zeigen oder er Teil einer Merge-Kette ist.
+    reason ist Pflicht (Audit, wie bei fix_statement)."""
+    if not reason or not reason.strip():
+        raise ValidationError("fix braucht einen reason (Audit-Pflicht).")
+    entity = get_entity(conn, entity_id)
+    if entity["merged_into"] is not None:
+        raise ValidationError(
+            "Entity ist ein Merge-Redirect (merged_into gesetzt) — Löschen "
+            "würde die Merge-Kette brechen."
+        )
+    active = conn.execute(
+        """SELECT count(*) AS n FROM statement
+           WHERE (subject_id = %(id)s OR object_id = %(id)s)
+             AND system_to IS NULL AND rank <> 'deprecated'""",
+        {"id": entity_id},
+    ).fetchone()["n"]
+    if active:
+        raise ValidationError(
+            f"Entity hat {active} aktive Statements — kein Erratum. "
+            "Dublette? welt_merge_entities führt verlustfrei zusammen."
+        )
+    qualifier_refs = conn.execute(
+        "SELECT count(*) AS n FROM qualifier WHERE object_id = %s", (entity_id,)
+    ).fetchone()["n"]
+    if qualifier_refs:
+        raise ValidationError(
+            f"Entity wird von {qualifier_refs} Qualifiern fremder Statements "
+            "referenziert — kein Erratum."
+        )
+    merge_children = conn.execute(
+        "SELECT count(*) AS n FROM entity WHERE merged_into = %s", (entity_id,)
+    ).fetchone()["n"]
+    if merge_children:
+        raise ValidationError(
+            "Entity ist kanonisches Ziel einer Merge-Kette — kein Erratum."
+        )
+    removed = conn.execute(
+        "DELETE FROM statement WHERE subject_id = %(id)s OR object_id = %(id)s",
+        {"id": entity_id},
+    ).rowcount
+    conn.execute("DELETE FROM entity WHERE id = %s", (entity_id,))
+    return {"fixed": str(entity_id), "deleted": True, "reason": reason,
+            "statements_removed": removed}
+
+
 def run_bulk(
     conn: psycopg.Connection,
     items: list[dict[str, Any]],

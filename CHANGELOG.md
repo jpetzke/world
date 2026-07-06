@@ -1,5 +1,19 @@
 # Changelog
 
+## Paket 2 — Query-Fähigkeiten
+
+- Neues Lese-Tool `welt_query`: Statement-zentrierte Suche (subject/predicate/
+  object/value_text/min_confidence/rank/valid_at/system_at/limit/offset),
+  Serialisierung und bitemporale Semantik identisch zu `welt_entity`
+  (gemeinsame `_TIME_FILTER`-Definition). Minimale Aggregation: count/sum/avg
+  (sum/avg nur number/quantity, pro unit gruppiert), group_by subject/object.
+- Qualifier-Validierung festgelegt: Domain-Check für Qualifier bewusst
+  ausgesetzt, range_kind wird jetzt validiert (vorher ungeprüft) —
+  dokumentiert in Code und Verfassung.
+- Neues Tool `welt_fix_entity(entity_id, reason)`: Erratum für versehentlich
+  angelegte Anker; löscht nur ohne aktive Statements, sonst Verweis auf
+  `welt_merge_entities`.
+
 ## Paket 1 — Proposal-Flow vervollständigt
 
 - Root-Typen: `parent_id` in `welt_propose_type` optional; Approve validiert

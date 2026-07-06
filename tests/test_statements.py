@@ -376,3 +376,59 @@ def test_fix_requires_reason(conn, source_id):
     )
     with pytest.raises(ValidationError, match="reason"):
         fix_statement(conn, str(row["id"]), reason="   ", rank="preferred")
+
+
+# --- Paket 2: Qualifier-Validierung + Entity-Erratum -------------------------
+
+
+def test_qualifier_validiert_range_kind_nicht_domain(conn, person, source_id):
+    other = str(create_entity(conn, type_id="Person", label="Qualifier Ziel")["id"])
+    # Domain-Check ist für Qualifier BEWUSST ausgesetzt: beginn trägt Domain
+    # Ereignis, ist aber als Zeit-Qualifier an einem knows-Statement legitim.
+    row = commit_statement(
+        conn, subject_id=person, predicate_id="knows",
+        value={"type": "entity", "object_id": other}, source_ids=[source_id],
+        qualifiers=[{"predicate_id": "beginn",
+                     "value": {"type": "datetime",
+                               "datetime": "2020-01-01T00:00:00Z"}}],
+    )
+    quals = conn.execute(
+        "SELECT * FROM qualifier WHERE statement_id = %s", (row["id"],)
+    ).fetchall()
+    assert len(quals) == 1
+
+    # range_kind wird dagegen validiert: beginn (datetime) mit string-Wert
+    with pytest.raises(ValidationError, match="Qualifier-Range-Verstoß"):
+        commit_statement(
+            conn, subject_id=person, predicate_id="knows",
+            value={"type": "entity", "object_id": other}, source_ids=[source_id],
+            qualifiers=[{"predicate_id": "beginn",
+                         "value": {"type": "string", "text": "früher"}}],
+        )
+
+
+def test_fix_entity_loescht_leeren_anker(conn):
+    from weltmodell.entities import fix_entity
+    from weltmodell.errors import NotFoundError
+
+    e = str(create_entity(conn, type_id="Person", label="Erratum Anker")["id"])
+    res = fix_entity(conn, e, reason="versehentlich angelegt (Test)")
+    assert res["deleted"] is True
+    assert res["reason"] == "versehentlich angelegt (Test)"
+    with pytest.raises(NotFoundError):
+        get_entity(conn, e)
+
+
+def test_fix_entity_blockt_benutzte_anker(conn, person, source_id):
+    from weltmodell.entities import fix_entity
+
+    commit_statement(
+        conn, subject_id=person, predicate_id="name",
+        value={"type": "string", "text": "In Benutzung"}, source_ids=[source_id],
+    )
+    with pytest.raises(ValidationError, match="welt_merge_entities"):
+        fix_entity(conn, person, reason="soll scheitern")
+
+    e = str(create_entity(conn, type_id="Person", label="Ohne Grund")["id"])
+    with pytest.raises(ValidationError, match="reason"):
+        fix_entity(conn, e, reason="   ")

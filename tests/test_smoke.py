@@ -117,6 +117,27 @@ def test_read_views(smoke):
     smoke("welt_source", {"source_id": S["source_id"]})
 
 
+def test_query(smoke):
+    res = smoke("welt_query", {
+        "predicate_id": "name", "value_text": "Smoke Person",
+    })["structuredContent"]
+    assert res["total"] >= 1
+    agg = smoke("welt_query", {
+        "predicate_id": "name", "aggregate": "count",
+    })["structuredContent"]
+    assert agg["count"] >= 1
+
+
+def test_fix_entity(smoke):
+    e = smoke("welt_create_entity", {
+        "type_id": "Person", "label": "Smoke Wegwerf",
+    })["structuredContent"]
+    r = smoke("welt_fix_entity", {
+        "entity_id": e["id"], "reason": "Smoke-Erratum",
+    })["structuredContent"]
+    assert r["deleted"] is True
+
+
 def test_merge(smoke):
     r = smoke("welt_merge_entities", {
         "entity_id": S["dupe_id"], "target_id": S["person_id"],

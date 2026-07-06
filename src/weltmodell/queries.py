@@ -9,7 +9,39 @@ import psycopg
 
 from .embeddings import get_embedder
 from .entities import canonical_id, get_entity
-from .errors import NotFoundError
+from .errors import NotFoundError, ValidationError
+
+# Bitemporaler Filter — EINE Definition für entity_view und query_statements,
+# damit sich Zeitreise-Semantik nie zwischen den Sichten unterscheidet:
+# - system_at NULL  → aktuelle Sicht (system_to IS NULL)
+# - system_at D     → „was glaubte ich am Datum D?"
+# - valid_at D      → „was war am Datum D wahr?"
+_TIME_FILTER = """
+      AND (
+        (%(system_at)s::timestamptz IS NULL AND s.system_to IS NULL)
+        OR (%(system_at)s::timestamptz IS NOT NULL
+            AND s.system_from <= %(system_at)s
+            AND (s.system_to IS NULL OR s.system_to > %(system_at)s))
+      )
+      AND (%(valid_at)s::timestamptz IS NULL
+           OR ((s.valid_from IS NULL OR s.valid_from <= %(valid_at)s)
+               AND (s.valid_to IS NULL OR s.valid_to > %(valid_at)s)))
+"""
+
+
+def _attach_qualifiers_and_references(conn: psycopg.Connection, statements) -> None:
+    """Serialisierung wie in entity_view: Qualifier + Quellen pro Statement."""
+    for s in statements:
+        s["qualifiers"] = conn.execute(
+            "SELECT * FROM qualifier WHERE statement_id = %s", (s["id"],)
+        ).fetchall()
+        s["references"] = conn.execute(
+            """SELECT d.id, d.url, d.activity, d.agent, d.retrieved_at
+               FROM reference r JOIN source_document d ON d.id = r.source_id
+               WHERE r.statement_id = %s""",
+            (s["id"],),
+        ).fetchall()
+        s.pop("value_geo", None)  # binäres PostGIS-Format; value_geojson liefert die Sicht
 
 
 def entity_view(
@@ -37,16 +69,7 @@ def entity_view(
         "valid_at": valid_at,
         "include_deprecated": include_deprecated,
     }
-    time_filter = """
-          AND (
-            (%(system_at)s::timestamptz IS NULL AND s.system_to IS NULL)
-            OR (%(system_at)s::timestamptz IS NOT NULL
-                AND s.system_from <= %(system_at)s
-                AND (s.system_to IS NULL OR s.system_to > %(system_at)s))
-          )
-          AND (%(valid_at)s::timestamptz IS NULL
-               OR ((s.valid_from IS NULL OR s.valid_from <= %(valid_at)s)
-                   AND (s.valid_to IS NULL OR s.valid_to > %(valid_at)s)))
+    time_filter = f"""{_TIME_FILTER}
           AND (%(include_deprecated)s OR s.rank <> 'deprecated')
     """
     statement_sql = f"""
@@ -68,22 +91,122 @@ def entity_view(
         statement_sql.format(direction="object_id"), params
     ).fetchall()
 
-    for s in outgoing:
-        s["qualifiers"] = conn.execute(
-            "SELECT * FROM qualifier WHERE statement_id = %s", (s["id"],)
-        ).fetchall()
-        s["references"] = conn.execute(
-            """SELECT d.id, d.url, d.activity, d.agent, d.retrieved_at
-               FROM reference r JOIN source_document d ON d.id = r.source_id
-               WHERE r.statement_id = %s""",
-            (s["id"],),
-        ).fetchall()
-        s.pop("value_geo", None)  # binäres PostGIS-Format; value_geojson liefert die Sicht
+    _attach_qualifiers_and_references(conn, outgoing)
 
     for s in incoming:
         s.pop("value_geo", None)
 
     return {"entity": entity, "statements": outgoing, "incoming": incoming}
+
+
+def query_statements(
+    conn: psycopg.Connection,
+    *,
+    subject_id: str | None = None,
+    predicate_id: str | None = None,
+    object_id: str | None = None,
+    value_text: str | None = None,
+    min_confidence: float | None = None,
+    rank: str | None = None,
+    valid_at: Any = None,
+    system_at: Any = None,
+    limit: int = 25,
+    offset: int = 0,
+    aggregate: str | None = None,
+    group_by: str | None = None,
+) -> dict[str, Any]:
+    """Statement-zentrierte Suche (viertes Standbein neben Search, Entity-View
+    und Traverse). Alle Filter optional und kombinierbar; bitemporale Filter
+    (_TIME_FILTER) exakt wie in entity_view. rank=None blendet deprecated aus
+    (wie die Current View), rank gesetzt filtert exakt.
+
+    aggregate: count | sum | avg — statt der Liste. sum/avg nur über number-
+    und quantity-Values, bei quantity nach unit gruppiert. group_by
+    (subject | object) gruppiert zusätzlich nach Entity.
+    """
+    if group_by and not aggregate:
+        raise ValidationError("group_by nur zusammen mit aggregate")
+    if group_by not in (None, "subject", "object"):
+        raise ValidationError(f"Ungültiges group_by '{group_by}'")
+    if aggregate not in (None, "count", "sum", "avg"):
+        raise ValidationError(f"Ungültiges aggregate '{aggregate}'")
+
+    params: dict[str, Any] = {
+        "subject_id": canonical_id(conn, subject_id) if subject_id else None,
+        "predicate_id": predicate_id,
+        "object_id": canonical_id(conn, object_id) if object_id else None,
+        "value_text": value_text,
+        "min_confidence": min_confidence,
+        "rank": rank,
+        "valid_at": valid_at,
+        "system_at": system_at,
+        "limit": limit,
+        "offset": offset,
+    }
+    where = f"""
+        WHERE (%(subject_id)s::uuid IS NULL OR s.subject_id = %(subject_id)s)
+          AND (%(predicate_id)s::text IS NULL OR s.predicate_id = %(predicate_id)s)
+          AND (%(object_id)s::uuid IS NULL OR s.object_id = %(object_id)s)
+          AND (%(value_text)s::text IS NULL OR s.value_text = %(value_text)s)
+          AND (%(min_confidence)s::real IS NULL
+               OR s.confidence >= %(min_confidence)s)
+          AND ((%(rank)s::text IS NULL AND s.rank <> 'deprecated')
+               OR s.rank = %(rank)s)
+          {_TIME_FILTER}
+    """
+
+    if aggregate:
+        group_col = {"subject": "s.subject_id", "object": "s.object_id"}.get(group_by)
+        group_cols: list[str] = [group_col] if group_col else []
+        select_cols = list(group_cols)
+        if aggregate == "count":
+            agg_expr = "count(*) AS count"
+        else:
+            # sum/avg sind nur über numerische Werte definiert; quantity wird
+            # pro unit gruppiert (EUR und USD summieren sich nicht).
+            where += " AND s.value_type IN ('number', 'quantity')"
+            group_cols.append("s.value_unit")
+            select_cols.append("s.value_unit AS unit")
+            agg_expr = f"{aggregate}(s.value_number)::float AS value, count(*) AS n"
+        group_sql = f"GROUP BY {', '.join(group_cols)}" if group_cols else ""
+        rows = conn.execute(
+            f"""SELECT {', '.join((*select_cols, agg_expr))}
+                FROM statement s {where} {group_sql}""",
+            params,
+        ).fetchall()
+        if group_col:  # Entity-Label zum Gruppen-Key nachschlagen
+            key = "subject_id" if group_by == "subject" else "object_id"
+            labels = {
+                str(r["id"]): r["label"]
+                for r in conn.execute(
+                    "SELECT id, label FROM entity WHERE id = ANY(%s)",
+                    ([row[key] for row in rows if row[key]],),
+                ).fetchall()
+            }
+            for row in rows:
+                row["label"] = labels.get(str(row[key])) if row[key] else None
+        if aggregate == "count" and not group_col:
+            return {"aggregate": "count", "count": rows[0]["count"]}
+        return {"aggregate": aggregate, "group_by": group_by, "groups": rows}
+
+    total = conn.execute(
+        f"SELECT count(*) AS n FROM statement s {where}", params
+    ).fetchone()["n"]
+    statements = conn.execute(
+        f"""SELECT s.*, e.label AS object_label, e.type_id AS object_type,
+                   subj.label AS subject_label, subj.type_id AS subject_type,
+                   ST_AsGeoJSON(s.value_geo)::jsonb AS value_geojson
+            FROM statement s
+            LEFT JOIN entity e ON e.id = s.object_id
+            LEFT JOIN entity subj ON subj.id = s.subject_id
+            {where}
+            ORDER BY CASE s.rank WHEN 'preferred' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+                     s.confidence DESC, s.system_from
+            LIMIT %(limit)s OFFSET %(offset)s""",
+        params,
+    ).fetchall()
+    _attach_qualifiers_and_references(conn, statements)
+    return {"statements": statements, "total": total}
 
 
 def entity_timeline(conn: psycopg.Connection, entity_id: str) -> list[dict[str, Any]]:

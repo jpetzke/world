@@ -1,6 +1,8 @@
 """Multi-Hop-Traverse und Suche: der Social-Graph ist EINE Struktur —
 Person → Account → Account → Person über eine einzige Kanten-Tabelle."""
 
+import pytest
+
 from weltmodell.entities import create_entity
 from weltmodell.queries import neighborhood, semantic_search
 from weltmodell.statements import commit_statement
@@ -102,3 +104,104 @@ def test_semantic_search_finds_fuzzy_label(conn):
     hits = semantic_search(conn, "Suchbare Persona Unikat", type_id="Person")
     assert hits[0]["label"] == "Suchbare Persona Unikat"
     assert hits[0]["similarity"] > 0.99
+
+
+# --- Paket 2: welt_query — Statement-zentrierte Suche + Aggregation ----------
+
+
+def test_query_statements_nach_praedikat(conn, source_id):
+    from weltmodell.queries import query_statements
+
+    e = _entity(conn, "Person", "Query Person")
+    for text in ("QAlias1", "QAlias2"):
+        commit_statement(
+            conn, subject_id=e, predicate_id="alias",
+            value={"type": "string", "text": text}, source_ids=[source_id],
+        )
+    res = query_statements(conn, predicate_id="alias", subject_id=e)
+    assert res["total"] == 2
+    assert {s["value_text"] for s in res["statements"]} == {"QAlias1", "QAlias2"}
+    # Serialisierung wie entity_view: Qualifier + Quellen-Referenzen dabei
+    first = res["statements"][0]
+    assert "qualifiers" in first and "references" in first
+    assert str(first["references"][0]["id"]) == source_id
+
+
+def test_query_statements_confidence_und_rank(conn, source_id):
+    from weltmodell.queries import query_statements
+    from weltmodell.statements import deprecate_statement
+
+    e1 = _entity(conn, "Person", "QConf Eins")
+    e2 = _entity(conn, "Person", "QConf Zwei")
+    commit_statement(
+        conn, subject_id=e1, predicate_id="alias",
+        value={"type": "string", "text": "QConf"}, source_ids=[source_id],
+        confidence=0.4,
+    )
+    high = commit_statement(
+        conn, subject_id=e2, predicate_id="alias",
+        value={"type": "string", "text": "QConf"}, source_ids=[source_id],
+        confidence=0.9,
+    )
+    both = query_statements(conn, predicate_id="alias", value_text="QConf")
+    assert both["total"] == 2
+    filtered = query_statements(
+        conn, predicate_id="alias", value_text="QConf", min_confidence=0.5
+    )
+    assert filtered["total"] == 1
+    assert filtered["statements"][0]["confidence"] == pytest.approx(0.9)
+
+    # rank: ohne Filter ist deprecated ausgeblendet, exakter Filter findet es
+    deprecate_statement(conn, str(high["id"]))
+    current = query_statements(conn, predicate_id="alias", value_text="QConf")
+    assert current["total"] == 1
+    dep = query_statements(
+        conn, predicate_id="alias", value_text="QConf", rank="deprecated"
+    )
+    assert dep["total"] == 1
+    assert dep["statements"][0]["rank"] == "deprecated"
+
+
+def test_query_statements_valid_at_zeitreise(conn, source_id):
+    from weltmodell.queries import query_statements
+
+    e = _entity(conn, "Person", "QZeit Person")
+    commit_statement(
+        conn, subject_id=e, predicate_id="alias",
+        value={"type": "string", "text": "QZeitAlias"}, source_ids=[source_id],
+        valid_from="2020-01-01T00:00:00Z", valid_to="2021-01-01T00:00:00Z",
+    )
+    drin = query_statements(conn, subject_id=e, valid_at="2020-06-01T00:00:00Z")
+    assert drin["total"] == 1
+    davor = query_statements(conn, subject_id=e, valid_at="2019-06-01T00:00:00Z")
+    assert davor["total"] == 0
+    danach = query_statements(conn, subject_id=e, valid_at="2022-06-01T00:00:00Z")
+    assert danach["total"] == 0
+
+
+def test_query_aggregation_summe_pro_unit(conn, source_id):
+    from weltmodell.queries import query_statements
+
+    fälle = [("Übernahme A", 100, "EUR"), ("Übernahme B", 50, "EUR"),
+             ("Übernahme C", 10, "USD")]
+    for label, betrag, unit in fälle:
+        u = _entity(conn, "Übernahme", label)
+        commit_statement(
+            conn, subject_id=u, predicate_id="kaufpreis",
+            value={"type": "quantity", "number": betrag, "unit": unit},
+            source_ids=[source_id],
+        )
+    res = query_statements(conn, predicate_id="kaufpreis", aggregate="sum")
+    by_unit = {g["unit"]: g for g in res["groups"]}
+    assert by_unit["EUR"]["value"] == pytest.approx(150.0)
+    assert by_unit["EUR"]["n"] == 2
+    assert by_unit["USD"]["value"] == pytest.approx(10.0)
+
+    # count ohne group_by; count mit group_by=subject liefert Entity-Gruppen
+    cnt = query_statements(conn, predicate_id="kaufpreis", aggregate="count")
+    assert cnt["count"] == 3
+    grouped = query_statements(
+        conn, predicate_id="kaufpreis", aggregate="count", group_by="subject"
+    )
+    assert len(grouped["groups"]) == 3
+    assert all(g["count"] == 1 and g["label"] for g in grouped["groups"])
