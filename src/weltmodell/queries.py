@@ -51,6 +51,8 @@ def entity_view(
     system_at: Any = None,
     valid_at: Any = None,
     include_deprecated: bool = False,
+    min_confidence: float | None = None,
+    rank: str | None = None,
 ) -> dict[str, Any]:
     """Entity + Statements. Beantwortet beide §4-Fragen:
 
@@ -59,6 +61,8 @@ def entity_view(
 
     Default: aktuelle Sicht (system_to IS NULL, gültige, nicht-deprecated
     Statements, preferred zuerst) — die „current view" aus §8.
+    min_confidence/rank filtern wie in query_statements: confidence >= x,
+    rank exakt (ein gesetzter rank ersetzt den deprecated-Ausschluss).
     """
     entity_id = canonical_id(conn, entity_id)
     entity = get_entity(conn, entity_id)
@@ -68,9 +72,15 @@ def entity_view(
         "system_at": system_at,
         "valid_at": valid_at,
         "include_deprecated": include_deprecated,
+        "min_confidence": min_confidence,
+        "rank": rank,
     }
     time_filter = f"""{_TIME_FILTER}
-          AND (%(include_deprecated)s OR s.rank <> 'deprecated')
+          AND ((%(rank)s::text IS NOT NULL AND s.rank = %(rank)s)
+               OR (%(rank)s::text IS NULL
+                   AND (%(include_deprecated)s OR s.rank <> 'deprecated')))
+          AND (%(min_confidence)s::real IS NULL
+               OR s.confidence >= %(min_confidence)s)
     """
     statement_sql = f"""
         SELECT s.*, e.label AS object_label, e.type_id AS object_type,
@@ -310,6 +320,8 @@ def neighborhood(
     max_depth: int = 1,
     predicates: list[str] | None = None,
     max_nodes: int = 400,
+    min_confidence: float | None = None,
+    rank: str | None = None,
 ) -> dict[str, Any]:
     """Ungerichtete k-Hop-Nachbarschaft als induzierter Teilgraph (§0, §10).
 
@@ -321,10 +333,22 @@ def neighborhood(
     *eingehenden* Kanten (z. B. ein viel-gefolgter Account) seine Nachbarschaft,
     statt leer zu bleiben. Bei mehr als max_nodes Treffern werden die nächsten
     Knoten (kleinste Hop-Distanz) behalten; total_nodes nennt die echte Größe.
+    min_confidence/rank filtern die Kanten wie in query_statements:
+    confidence >= x, rank exakt (ersetzt den deprecated-Ausschluss).
     """
     start_id = canonical_id(conn, start_id)
+    edge_filter = """
+               AND ((%(rank)s::text IS NOT NULL AND s.rank = %(rank)s)
+                    OR (%(rank)s::text IS NULL AND s.rank <> 'deprecated'))
+               AND (%(min_confidence)s::real IS NULL
+                    OR s.confidence >= %(min_confidence)s)
+    """
+    params: dict[str, Any] = {
+        "start": start_id, "max_depth": max_depth, "preds": predicates,
+        "rank": rank, "min_confidence": min_confidence,
+    }
     reached = conn.execute(
-        """WITH RECURSIVE reach(node_id, depth) AS (
+        f"""WITH RECURSIVE reach(node_id, depth) AS (
              SELECT %(start)s::uuid, 0
              UNION
              SELECT CASE WHEN s.subject_id = r.node_id
@@ -334,12 +358,13 @@ def neighborhood(
              JOIN statement s
                ON (s.subject_id = r.node_id OR s.object_id = r.node_id)
              WHERE r.depth < %(max_depth)s AND s.value_type = 'entity'
-               AND s.system_to IS NULL AND s.rank <> 'deprecated'
+               AND s.system_to IS NULL
+               {edge_filter}
                AND (%(preds)s::text[] IS NULL OR s.predicate_id = ANY(%(preds)s))
            )
            SELECT node_id, min(depth) AS depth
            FROM reach GROUP BY node_id ORDER BY min(depth)""",
-        {"start": start_id, "max_depth": max_depth, "preds": predicates},
+        params,
     ).fetchall()
     total = len(reached)
     kept = reached[:max_nodes]
@@ -359,14 +384,15 @@ def neighborhood(
         n["depth"] = depth_by[str(n["id"])]
 
     edges = conn.execute(
-        """SELECT s.id, s.subject_id, s.object_id, s.predicate_id,
+        f"""SELECT s.id, s.subject_id, s.object_id, s.predicate_id,
                   s.rank, s.confidence
            FROM statement s
            WHERE s.value_type = 'entity' AND s.system_to IS NULL
-             AND s.rank <> 'deprecated'
+             {edge_filter}
              AND s.subject_id = ANY(%(ids)s) AND s.object_id = ANY(%(ids)s)
              AND (%(preds)s::text[] IS NULL OR s.predicate_id = ANY(%(preds)s))""",
-        {"ids": ids, "preds": predicates},
+        {"ids": ids, "preds": predicates, "rank": rank,
+         "min_confidence": min_confidence},
     ).fetchall()
     return {
         "nodes": nodes,

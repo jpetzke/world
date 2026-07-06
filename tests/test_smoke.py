@@ -165,6 +165,53 @@ def test_registry_gate(smoke):
     assert rejected["status"] == "rejected"
 
 
+def test_proposal_komfort(smoke):
+    iface = smoke("welt_propose_interface", {
+        "interface_id": "SmokeFähig", "label": "Smoke-Fähigkeit",
+    })["structuredContent"]
+    approved = smoke("welt_decide_proposal", {
+        "kind": "interface", "proposal_id": iface["id"], "decision": "approve",
+    })["structuredContent"]
+    assert approved["status"] == "approved"
+
+    bulk_t = smoke("welt_propose_types", {"proposals": [
+        {"type_id": "SmokeBulkTyp", "parent_id": "Person",
+         "kind": "continuant", "label": "Smoke Bulk"},
+    ]})["structuredContent"]
+    assert bulk_t["committed"] == 1
+
+    bulk_p = smoke("welt_propose_predicates", {"proposals": [
+        {"predicate_id": "smoke_bulk_pred", "label": "x",
+         "range_kind": "string", "domain_type": "Person", "cardinality": "1:n"},
+    ]})["structuredContent"]
+    assert bulk_p["committed"] == 1
+
+    amended = smoke("welt_amend_proposal", {
+        "proposal_id": bulk_p["results"][0]["id"],
+        "patch": {"label": "Smoke Bulk Prädikat"},
+    })["structuredContent"]
+    assert amended["label"] == "Smoke Bulk Prädikat"
+    assert amended["status"] == "pending"
+
+
+def test_snapshot_import(smoke):
+    owner = smoke("welt_create_entity", {
+        "type_id": "Person", "label": "Snapshot Owner",
+    })["structuredContent"]
+    rows = [{"label": "Snapshot Ziel",
+             "identifiers": {"email": "snapshot.ziel@example.org"}}]
+    prev = smoke("welt_import_snapshot", {
+        "predicate_id": "knows", "owner_entity_id": owner["id"],
+        "rows": rows, "mode": "preview",
+    })["structuredContent"]
+    assert prev["summary"]["new_entity"] == 1
+    com = smoke("welt_import_snapshot", {
+        "predicate_id": "knows", "owner_entity_id": owner["id"],
+        "rows": rows, "mode": "commit",
+    })["structuredContent"]
+    assert com["statements_created"] == 1
+
+
 def test_pipeline_ingest(smoke):
     r = smoke("welt_ingest", {
         "activity": "test:smoke", "agent": "pytest-smoke",

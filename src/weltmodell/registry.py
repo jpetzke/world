@@ -270,6 +270,42 @@ def approve_predicate(conn: psycopg.Connection, proposal_id: str) -> dict:
     return _decide(conn, "proposed_predicate", proposal_id, "approved")
 
 
+# --- Review-Gate: Interfaces --------------------------------------------------
+
+
+def propose_interface(
+    conn: psycopg.Connection,
+    *,
+    interface_id: str,
+    label: str,
+    rationale: str | None = None,
+    proposed_by: str,
+) -> dict:
+    if conn.execute(
+        "SELECT 1 FROM interface WHERE id = %s", (interface_id,)
+    ).fetchone():
+        raise RegistryError(f"Interface '{interface_id}' existiert bereits")
+    return conn.execute(
+        """INSERT INTO proposed_interface
+             (interface_id, label, rationale, proposed_by)
+           VALUES (%s, %s, %s, %s) RETURNING *""",
+        (interface_id, label, rationale, proposed_by),
+    ).fetchone()
+
+
+def approve_interface(conn: psycopg.Connection, proposal_id: str) -> dict:
+    prop = _pending(conn, "proposed_interface", proposal_id)
+    if conn.execute(
+        "SELECT 1 FROM interface WHERE id = %s", (prop["interface_id"],)
+    ).fetchone():
+        raise RegistryError(f"Interface '{prop['interface_id']}' existiert bereits")
+    conn.execute(
+        "INSERT INTO interface (id, label) VALUES (%s, %s)",
+        (prop["interface_id"], prop["label"]),
+    )
+    return _decide(conn, "proposed_interface", proposal_id, "approved")
+
+
 def ensure_identifying_index(conn: psycopg.Connection, predicate_id: str) -> None:
     """DB-seitiger Dubletten-Schutz für einen identifying-Key: partieller
     Unique-Index über (predicate_id, value_text) auf aktuellen, nicht-
@@ -309,7 +345,7 @@ def ensure_identifying_index(conn: psycopg.Connection, predicate_id: str) -> Non
 
 
 def reject_proposal(conn: psycopg.Connection, table: str, proposal_id: str) -> dict:
-    if table not in ("proposed_type", "proposed_predicate"):
+    if table not in ("proposed_type", "proposed_predicate", "proposed_interface"):
         raise RegistryError(f"Unbekannte Proposal-Tabelle '{table}'")
     _pending(conn, table, proposal_id)
     return _decide(conn, table, proposal_id, "rejected")
@@ -325,7 +361,91 @@ def list_proposals(conn: psycopg.Connection, status: str = "pending") -> dict:
             "SELECT * FROM proposed_predicate WHERE status = %s ORDER BY created_at",
             (status,),
         ).fetchall(),
+        "interfaces": conn.execute(
+            "SELECT * FROM proposed_interface WHERE status = %s ORDER BY created_at",
+            (status,),
+        ).fetchall(),
     }
+
+
+# Amendbare Felder = die Felder des jeweiligen propose_*-Aufrufs. Status,
+# Zeitstempel und proposed_by sind bewusst nicht patchbar.
+_AMENDABLE: dict[str, set[str]] = {
+    "proposed_type": {"type_id", "parent_id", "kind", "label", "interfaces",
+                      "label_predicate", "abstract", "wikidata_qid", "rationale"},
+    "proposed_predicate": {"predicate_id", "label", "domain_type",
+                           "domain_interface", "range_kind", "range_type",
+                           "cardinality", "inverse_id", "identifying",
+                           "wikidata_pid", "schema_org", "rationale"},
+    "proposed_interface": {"interface_id", "label", "rationale"},
+}
+
+
+def amend_proposal(
+    conn: psycopg.Connection, proposal_id: str, patch: dict[str, Any]
+) -> dict:
+    """Proposal nachschärfen statt neu einreichen. Nur pending/rejected;
+    approved ist unveränderlich (in der Registry gelandet). Ein Amend auf
+    rejected setzt den Status zurück auf pending (decided_at wird geleert)."""
+    if not patch:
+        raise RegistryError("Leerer Patch — mindestens ein Feld angeben")
+    row, table = None, None
+    for t in _AMENDABLE:
+        row = conn.execute(
+            f"SELECT * FROM {t} WHERE id = %s", (proposal_id,)  # noqa: S608 — table whitelisted
+        ).fetchone()
+        if row is not None:
+            table = t
+            break
+    if row is None:
+        raise NotFoundError(f"Proposal {proposal_id} nicht gefunden")
+    if row["status"] == "approved":
+        raise RegistryError(
+            "Proposal ist approved und damit unveränderlich — neues Proposal "
+            "einreichen (die Registry-Zeile existiert bereits)."
+        )
+    unknown = set(patch) - _AMENDABLE[table]
+    if unknown:
+        raise RegistryError(
+            f"Unbekannte Felder für {table}: {sorted(unknown)} "
+            f"(erlaubt: {sorted(_AMENDABLE[table])})"
+        )
+    sets = ", ".join(f"{k} = %({k})s" for k in patch)  # Keys whitelisted
+    return conn.execute(
+        f"""UPDATE {table} SET {sets}, status = 'pending', decided_at = NULL
+            WHERE id = %(id)s RETURNING *""",  # noqa: S608 — table whitelisted
+        {**patch, "id": proposal_id},
+    ).fetchone()
+
+
+def propose_types(
+    conn: psycopg.Connection, *, items: list[dict[str, Any]], atomic: bool = True
+) -> dict[str, Any]:
+    """Bulk-Variante von propose_type (Verhalten analog create_entities)."""
+    from .entities import run_bulk
+
+    def one(c: psycopg.Connection, item: dict[str, Any]) -> dict[str, Any]:
+        fields = dict(item)
+        proposed_by = fields.pop("proposed_by", "mcp-agent")
+        row = propose_type(c, proposed_by=proposed_by, **fields)
+        return {"id": str(row["id"]), "type_id": row["type_id"]}
+
+    return run_bulk(conn, items, one, atomic=atomic)
+
+
+def propose_predicates(
+    conn: psycopg.Connection, *, items: list[dict[str, Any]], atomic: bool = True
+) -> dict[str, Any]:
+    """Bulk-Variante von propose_predicate (Verhalten analog create_entities)."""
+    from .entities import run_bulk
+
+    def one(c: psycopg.Connection, item: dict[str, Any]) -> dict[str, Any]:
+        fields = dict(item)
+        proposed_by = fields.pop("proposed_by", "mcp-agent")
+        row = propose_predicate(c, proposed_by=proposed_by, **fields)
+        return {"id": str(row["id"]), "predicate_id": row["predicate_id"]}
+
+    return run_bulk(conn, items, one, atomic=atomic)
 
 
 def _pending(conn: psycopg.Connection, table: str, proposal_id: str) -> dict:

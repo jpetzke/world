@@ -14,8 +14,12 @@ eigenes dazu.
    Timeline) ist jederzeit neu berechenbar. Lege nie eine zweite Wahrheit an.
 2. **Kein Write am Registry-Vokabular vorbei.** Du mappst auf existierendes
    Vokabular (`welt_vocabulary`) oder emittierst ein Proposal
-   (`welt_propose_type` / `welt_propose_predicate`) — du schreibst nie frei.
-   Approve nur nach echter Prüfung gegen diese Verfassung.
+   (`welt_propose_type` / `welt_propose_predicate` / `welt_propose_interface`;
+   mehrere auf einmal: `welt_propose_types` / `welt_propose_predicates`) —
+   du schreibst nie frei. Approve nur nach echter Prüfung gegen diese
+   Verfassung. Ein pending/rejected Proposal lässt sich mit
+   `welt_amend_proposal` nachschärfen (setzt rejected auf pending zurück);
+   approved ist unveränderlich.
 3. **Kein Fakt ohne Provenance.** Jedes Statement braucht ≥1 Quelle
    (`welt_create_source` zuerst, dann `source_ids`). Confidence < 1.0 ist der
    Normalfall. Nur nackte Entity-Anker brauchen keine Quelle.
@@ -71,6 +75,10 @@ datetime-Statements (mit Provenance). `valid_from`/`valid_to` sagen, wann die
 - Typen: `kind` muss zum Parent passen; in vorhandene Äste hängen. Interfaces
   aus vorhandenen komponieren (`Nameable`, `Locatable`, `Temporal`, …).
   `label_predicate` setzen, wo der Typ einen Anzeige-Bezeichner hat.
+- **Interface-Proposals:** neue Interfaces nur bei echter Wiederkehr über
+  mehrere Äste (`welt_propose_interface`, Review-Gate). Ein Interface ist
+  eine reine Registry-Zeile ohne eigene Verhaltens-Semantik — es wird von
+  Typen implementiert und von Prädikaten als Domain referenziert.
 - **Wurzeltypen sind die Ausnahme:** `parent_id` darf im Proposal fehlen, wenn
   ein Ding in keinen vorhandenen Ast gehört (Vorbild `Wertpapier`). Der Approve
   validiert dann nur das `kind`-Etikett — die Begründung, warum kein Ast passt,
@@ -97,7 +105,9 @@ datetime-Statements (mit Provenance). `valid_from`/`valid_to` sagen, wann die
   `welt_search`. Duplikate sind teurer als ein Lookup.
 - **Snapshot-Philosophie:** Quellen sind unvollständig. Bekanntes wird
   re-bestätigt (neue Reference), nicht dupliziert. Abwesenheit in einem
-  Snapshot ist KEIN Gegenbeweis (kein implizites Unfollow).
+  Snapshot ist KEIN Gegenbeweis (kein implizites Unfollow). Listen-Importe
+  für beliebige n:m-Prädikate: `welt_import_snapshot` (erst preview, dann
+  commit); `welt_import_follower_list` ist der Instagram-Spezialfall.
 - **Merge statt Zweitanlage:** erkannte Dubletten mit `welt_merge_entities`
   verlustfrei zusammenführen (Provenance beider Seiten bleibt).
 - **Bulk bevorzugen:** mehrere Anker/Fakten auf einmal immer per

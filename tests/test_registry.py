@@ -274,3 +274,105 @@ def test_label_predicate_domain_inkompatibel(conn):
     )
     with pytest.raises(RegistryError, match="domain-kompatibel"):
         registry.approve_type(conn, str(p["id"]))
+
+
+# --- Paket 3: Interface-Proposals, Amend, Bulk-Propose ------------------------
+
+
+def test_interface_proposal_roundtrip(conn):
+    prop = registry.propose_interface(
+        conn, interface_id="TestFähig", label="Test-Fähigkeit",
+        rationale="Interface-Gate-Test", proposed_by="pytest",
+    )
+    registry.approve_interface(conn, str(prop["id"]))
+    assert any(i["id"] == "TestFähig" for i in registry.list_interfaces(conn))
+
+    # danach in propose_type als Interface referenzierbar …
+    t = registry.propose_type(
+        conn, type_id="TestFähigTyp", parent_id="Person", kind="continuant",
+        label="x", interfaces=["TestFähig"], proposed_by="pytest",
+    )
+    registry.approve_type(conn, str(t["id"]))
+    assert "TestFähig" in registry.type_interfaces(conn, "TestFähigTyp")
+
+    # … und in propose_predicate als domain_interface
+    p = registry.propose_predicate(
+        conn, predicate_id="test_faehig_pred", label="x", range_kind="string",
+        domain_interface="TestFähig", cardinality="1:n", proposed_by="pytest",
+    )
+    registry.approve_predicate(conn, str(p["id"]))
+    assert registry.get_predicate(
+        conn, "test_faehig_pred")["domain_interface"] == "TestFähig"
+
+    assert "interfaces" in registry.list_proposals(conn, status="approved")
+
+
+def test_interface_reject_und_dublette(conn):
+    # Nameable existiert bereits → propose lehnt sofort ab
+    with pytest.raises(RegistryError, match="existiert bereits"):
+        registry.propose_interface(
+            conn, interface_id="Nameable", label="dupe", proposed_by="pytest",
+        )
+    p = registry.propose_interface(
+        conn, interface_id="TestVerworfen", label="x", proposed_by="pytest",
+    )
+    registry.reject_proposal(conn, "proposed_interface", str(p["id"]))
+    assert not any(
+        i["id"] == "TestVerworfen" for i in registry.list_interfaces(conn))
+
+
+def test_amend_proposal_lifecycle(conn):
+    # Proposal ohne Domain → Approve scheitert → reject → amend → approve
+    p = registry.propose_predicate(
+        conn, predicate_id="amend_pred", label="x", range_kind="string",
+        cardinality="1:n", proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="domain"):
+        registry.approve_predicate(conn, str(p["id"]))
+    registry.reject_proposal(conn, "proposed_predicate", str(p["id"]))
+
+    amended = registry.amend_proposal(conn, str(p["id"]), {"domain_type": "Person"})
+    assert amended["status"] == "pending"       # rejected → pending
+    assert amended["decided_at"] is None
+    assert amended["domain_type"] == "Person"
+    registry.approve_predicate(conn, str(p["id"]))
+
+    # approved ist unveränderlich
+    with pytest.raises(RegistryError, match="unveränderlich"):
+        registry.amend_proposal(conn, str(p["id"]), {"label": "y"})
+
+    # Felder außerhalb des Propose-Vokabulars sind nicht patchbar
+    t = registry.propose_type(
+        conn, type_id="AmendTyp", parent_id="Person", kind="continuant",
+        label="x", proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="Unbekannte Felder"):
+        registry.amend_proposal(conn, str(t["id"]), {"status": "approved"})
+
+
+def test_bulk_propose_types_und_predicates(conn):
+    from weltmodell.errors import ValidationError
+
+    res = registry.propose_types(conn, items=[
+        {"type_id": "BulkTyp1", "parent_id": "Person", "kind": "continuant",
+         "label": "Bulk Eins"},
+        {"type_id": "Person", "parent_id": "Person", "kind": "continuant",
+         "label": "Dublette"},
+    ], atomic=False)
+    assert res["committed"] == 1
+    assert res["results"][0]["ok"] is True
+    assert res["results"][1]["ok"] is False
+
+    # atomic=True: erster Fehler bricht mit Item-Index ab
+    with pytest.raises(ValidationError, match="Item 0"):
+        registry.propose_types(conn, items=[
+            {"type_id": "Person", "parent_id": "Person", "kind": "continuant",
+             "label": "Dublette"},
+        ], atomic=True)
+    conn.rollback()
+
+    res = registry.propose_predicates(conn, items=[
+        {"predicate_id": "bulk_pred_1", "label": "x", "range_kind": "string",
+         "domain_type": "Person", "cardinality": "1:n"},
+    ], atomic=True)
+    assert res["committed"] == 1

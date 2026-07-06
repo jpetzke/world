@@ -205,3 +205,42 @@ def test_query_aggregation_summe_pro_unit(conn, source_id):
     )
     assert len(grouped["groups"]) == 3
     assert all(g["count"] == 1 and g["label"] for g in grouped["groups"])
+
+
+# --- Paket 3: min_confidence/rank-Filter in entity_view und neighborhood -----
+
+
+def test_entity_view_read_filter(conn, source_id):
+    from weltmodell.queries import entity_view
+    from weltmodell.statements import deprecate_statement
+
+    e = _entity(conn, "Person", "Filter Person")
+    commit_statement(
+        conn, subject_id=e, predicate_id="alias",
+        value={"type": "string", "text": "FilterLow"}, source_ids=[source_id],
+        confidence=0.3,
+    )
+    high = commit_statement(
+        conn, subject_id=e, predicate_id="alias",
+        value={"type": "string", "text": "FilterHigh"}, source_ids=[source_id],
+        confidence=0.9,
+    )
+    view = entity_view(conn, e, min_confidence=0.5)
+    assert [s["value_text"] for s in view["statements"]] == ["FilterHigh"]
+
+    # rank exakt ersetzt den deprecated-Ausschluss (Semantik wie welt_query)
+    deprecate_statement(conn, str(high["id"]))
+    dep = entity_view(conn, e, rank="deprecated")
+    assert {s["value_text"] for s in dep["statements"]} == {"FilterHigh"}
+
+
+def test_neighborhood_read_filter(conn, source_id):
+    a = _entity(conn, "Person", "NBF A")
+    b = _entity(conn, "Person", "NBF B")
+    c = _entity(conn, "Person", "NBF C")
+    _link(conn, a, "knows", b, source_id, confidence=0.4)
+    _link(conn, a, "knows", c, source_id, confidence=0.9)
+
+    nb = neighborhood(conn, a, max_depth=1, min_confidence=0.5)
+    ids = {str(n["id"]) for n in nb["nodes"]}
+    assert c in ids and b not in ids

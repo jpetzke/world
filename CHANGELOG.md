@@ -1,5 +1,23 @@
 # Changelog
 
+## Paket 3 — Komfort
+
+- `welt_import_snapshot`: generischer Snapshot-Import für beliebige
+  n:m-Entity-Prädikate (Preview/Commit, Re-Bestätigung per Reference);
+  `welt_import_follower_list` ist jetzt ein dünner Wrapper darum
+  (Instagram-Spezifika: Username-Normalisierung, account_uri,
+  handle/platform/name bei Neuanlage). Preview und Commit teilen sich
+  jetzt die Resolve-Logik — vorher konnte die Preview-Klassifikation vom
+  Commit-Verhalten abweichen (Vektor-Auto-Match galt nur im Commit).
+- Interfaces proposebar: `welt_propose_interface` + Approve/Reject über
+  `welt_decide_proposal` (kind=interface); Migration 0015.
+- `welt_amend_proposal(proposal_id, patch)`: pending/rejected nachschärfen,
+  rejected geht zurück auf pending; approved ist unveränderlich.
+- Bulk-Propose: `welt_propose_types` / `welt_propose_predicates` mit
+  atomic-Flag (Verhalten wie welt_create_entities).
+- `min_confidence`/`rank` als Read-Filter in `welt_entity` und
+  `welt_traverse` (Semantik wie `welt_query`).
+
 ## Paket 2 — Query-Fähigkeiten
 
 - Neues Lese-Tool `welt_query`: Statement-zentrierte Suche (subject/predicate/

@@ -34,7 +34,15 @@ from pydantic import AnyHttpUrl
 from pydantic_core import to_jsonable_python
 from starlette.routing import Route
 
-from . import follower_import, pipeline, queries, registry, resolution, statements
+from . import (
+    follower_import,
+    pipeline,
+    queries,
+    registry,
+    resolution,
+    snapshot_import,
+    statements,
+)
 from .config import get_public_url, is_prod
 from .db import get_conn
 from .entities import create_entities, create_entity, fix_entity
@@ -291,13 +299,17 @@ async def welt_entity(
     system_at: str | None = None,
     valid_at: str | None = None,
     include_deprecated: bool = False,
+    min_confidence: float | None = None,
+    rank: Literal["preferred", "normal", "deprecated"] | None = None,
 ) -> dict[str, Any]:
     """Vollsicht einer Entity: ausgehende Statements (mit Qualifiern +
     Quellen) und eingehende Statements. Zeitreisen: valid_at = „was war am
-    Datum D wahr?", system_at = „was glaubte ich am Datum D?" (ISO-Datetime)."""
+    Datum D wahr?", system_at = „was glaubte ich am Datum D?" (ISO-Datetime).
+    min_confidence/rank filtern wie in welt_query (rank exakt)."""
     return await _run(
         partial(queries.entity_view, entity_id=entity_id, system_at=system_at,
-                valid_at=valid_at, include_deprecated=include_deprecated)
+                valid_at=valid_at, include_deprecated=include_deprecated,
+                min_confidence=min_confidence, rank=rank)
     )
 
 
@@ -350,14 +362,18 @@ async def welt_traverse(
     max_depth: int = 1,
     predicates: list[str] | None = None,
     max_nodes: int = 60,
+    min_confidence: float | None = None,
+    rank: Literal["preferred", "normal", "deprecated"] | None = None,
 ) -> dict[str, Any]:
     """Graph-Nachbarschaft (k-Hop, ungerichtet, zyklensicher) als Teilgraph:
     nodes (id, label, type_id, degree, depth) + edges (subject→object mit
     Prädikat). predicates schränkt auf bestimmte Kanten ein. total_nodes
-    nennt die echte Größe, wenn max_nodes kappt."""
+    nennt die echte Größe, wenn max_nodes kappt. min_confidence/rank filtern
+    die Kanten wie in welt_query (rank exakt)."""
     return await _run(
         partial(queries.neighborhood, start_id=start_id, max_depth=max_depth,
-                predicates=predicates, max_nodes=min(max_nodes, 500))
+                predicates=predicates, max_nodes=min(max_nodes, 500),
+                min_confidence=min_confidence, rank=rank)
     )
 
 
@@ -665,25 +681,93 @@ async def welt_propose_predicate(
 
 @mcp.tool()
 async def welt_decide_proposal(
-    kind: Literal["type", "predicate"],
+    kind: Literal["type", "predicate", "interface"],
     proposal_id: str,
     decision: Literal["approve", "reject"],
 ) -> dict[str, Any]:
     """Proposal entscheiden. Approve prüft hart (Parent-kind-Match, Domain/
     Range existieren) und schreibt in die Registry. Vor dem Approve gegen die
     Design-Regeln der Verfassung prüfen — ein falsch approbierter Typ ist
-    teuer. Bei Zweifel: reject mit neuem, besserem Proposal."""
+    teuer. Bei Zweifel: reject — oder welt_amend_proposal zum Nachschärfen."""
     _require_write()
 
     def q(conn):
         if decision == "approve":
             if kind == "type":
                 return registry.approve_type(conn, proposal_id)
-            return registry.approve_predicate(conn, proposal_id)
-        table = "proposed_type" if kind == "type" else "proposed_predicate"
-        return registry.reject_proposal(conn, table, proposal_id)
+            if kind == "predicate":
+                return registry.approve_predicate(conn, proposal_id)
+            return registry.approve_interface(conn, proposal_id)
+        return registry.reject_proposal(conn, f"proposed_{kind}", proposal_id)
 
     return await _run(q)
+
+
+@mcp.tool()
+async def welt_propose_interface(
+    interface_id: str,
+    label: str,
+    rationale: str | None = None,
+    proposed_by: str = "mcp-agent",
+) -> dict[str, Any]:
+    """Neues Interface vorschlagen (Review-Gate). Interfaces bündeln
+    Fähigkeiten über Typ-Äste hinweg (Nameable, Locatable, …) — nur bei
+    echter Wiederkehr über mehrere Äste, sonst reicht die Typ-Hierarchie.
+    Nach dem Approve in welt_propose_type (interfaces) und
+    welt_propose_predicate (domain_interface) referenzierbar."""
+    _require_write()
+    return await _run(
+        partial(registry.propose_interface, interface_id=interface_id,
+                label=label, rationale=rationale, proposed_by=proposed_by)
+    )
+
+
+@mcp.tool()
+async def welt_amend_proposal(
+    proposal_id: str,
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    """Proposal nachschärfen statt neu einreichen: patch ist ein Teilobjekt
+    der ursprünglichen Propose-Felder (z. B. {"cardinality": "1:1"}). Nur auf
+    pending oder rejected — approved ist unveränderlich. Ein Amend auf
+    rejected setzt den Status zurück auf pending."""
+    _require_write()
+    return await _run(
+        partial(registry.amend_proposal, proposal_id=proposal_id, patch=patch)
+    )
+
+
+@mcp.tool()
+async def welt_propose_types(
+    proposals: list[dict[str, Any]],
+    atomic: bool = True,
+) -> dict[str, Any]:
+    """BULK-Variante von welt_propose_type (ein Roundtrip statt N). Jedes
+    Element trägt die Felder von welt_propose_type: {"type_id":…, "kind":…,
+    "label":…, "parent_id"?:…, "interfaces"?:…, "label_predicate"?:…,
+    "abstract"?:…, "wikidata_qid"?:…, "rationale"?:…}.
+    atomic=true (Default): alles-oder-nichts, der erste Fehler bricht ab und
+    nennt den Item-Index. atomic=false: Best-Effort mit results-Report
+    (index, ok, error/id) wie welt_create_entities."""
+    _require_write()
+    return await _run(partial(registry.propose_types, items=proposals, atomic=atomic))
+
+
+@mcp.tool()
+async def welt_propose_predicates(
+    proposals: list[dict[str, Any]],
+    atomic: bool = True,
+) -> dict[str, Any]:
+    """BULK-Variante von welt_propose_predicate (ein Roundtrip statt N). Jedes
+    Element trägt die Felder von welt_propose_predicate: {"predicate_id":…,
+    "label":…, "range_kind":…, "domain_type"?:…, "domain_interface"?:…,
+    "range_type"?:…, "cardinality"?:…, "inverse_id"?:…, "identifying"?:…,
+    "wikidata_pid"?:…, "schema_org"?:…, "rationale"?:…}.
+    atomic wie bei welt_propose_types."""
+    _require_write()
+    return await _run(
+        partial(registry.propose_predicates, items=proposals, atomic=atomic)
+    )
 
 
 @mcp.tool()
@@ -721,6 +805,41 @@ async def welt_ingest(
         return {"source": doc, "pipeline": report}
 
     return await _run(q)
+
+
+@mcp.tool()
+async def welt_import_snapshot(
+    predicate_id: str,
+    owner_entity_id: str,
+    rows: list[dict[str, Any]],
+    mode: Literal["preview", "commit"] = "preview",
+    direction: Literal["outgoing", "incoming"] = "outgoing",
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    """Generischer Snapshot-Import für beliebige n:m-Entity-Prädikate
+    (Verallgemeinerung von welt_import_follower_list). rows:
+    [{"type_id"?:…, "label"?:…, "identifiers"?:{prädikat: wert},
+      "statements"?:[{"predicate_id":…, "value":{…}}]}]
+    type_id-Default ist der Range- bzw. Domain-Typ des Prädikats; identifiers
+    dedupen deterministisch; statements werden nur bei NEUANLAGE der
+    Ziel-Entity mitcommittet. direction: outgoing = Owner ist Subjekt
+    (owner → target), incoming = Owner ist Objekt (target → owner).
+    IMMER erst mode='preview' (read-only, klassifiziert jede Row:
+    new_entity/new_statement/confirmed/invalid), Ergebnis prüfen, dann
+    mode='commit'. Commit re-bestätigt Bekanntes per Reference statt zu
+    duplizieren (Snapshot-Philosophie: Abwesenheit ist kein Gegenbeweis)."""
+    if mode == "commit":
+        _require_write()
+        return await _run(
+            partial(snapshot_import.commit_snapshot, predicate_id=predicate_id,
+                    owner_entity_id=owner_entity_id, rows=rows,
+                    direction=direction, observed_at=observed_at,
+                    agent="mcp:snapshot-import")
+        )
+    return await _run(
+        partial(snapshot_import.preview_snapshot, predicate_id=predicate_id,
+                owner_entity_id=owner_entity_id, rows=rows, direction=direction)
+    )
 
 
 @mcp.tool()
