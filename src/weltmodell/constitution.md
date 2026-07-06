@@ -69,8 +69,24 @@ datetime-Statements (mit Provenance). `valid_from`/`valid_to` sagen, wann die
 - Typen: `kind` muss zum Parent passen; in vorhandene Äste hängen. Interfaces
   aus vorhandenen komponieren (`Nameable`, `Locatable`, `Temporal`, …).
   `label_predicate` setzen, wo der Typ einen Anzeige-Bezeichner hat.
+- **Wurzeltypen sind die Ausnahme:** `parent_id` darf im Proposal fehlen, wenn
+  ein Ding in keinen vorhandenen Ast gehört (Vorbild `Wertpapier`). Der Approve
+  validiert dann nur das `kind`-Etikett — die Begründung, warum kein Ast passt,
+  gehört in die rationale.
+- Im Typ-Proposal proposebar: `label_predicate` (muss existieren und
+  domain-kompatibel zum neuen Typ sein) und `abstract` (true = Typ bündelt
+  einen Ast und ist nicht instanziierbar; `welt_create_entity` nennt im
+  Fehlertext die konkreten Subtypen).
 - Jeder aus Quellen befüllte Typ braucht ≥1 `identifying`-Prädikat (harter
   Dedup-Key wie `account_uri`, `email`) — sonst Duplikate aus jeder Quelle.
+- **identifying-Regeln:** `identifying=true` erfordert `range_kind='string'`
+  und `cardinality='1:1'` (Stufe-1-Resolve matcht exakt auf den Textwert).
+  Die DB erzwingt Eindeutigkeit pro identifying-Key (partieller Unique-Index
+  auf aktuellen, nicht-deprecated Statements); Approve und Migration lehnen
+  ab, wenn Bestandsdaten Dubletten haben — kuratieren statt still löschen.
+  Ein Commit desselben identifying-Werts auf DIESELBE Entity re-bestätigt das
+  bestehende Statement (neue Reference, Flag `reconfirmed`) statt zu
+  duplizieren; derselbe Wert auf einer anderen Entity ist ein Fehler.
 
 ## Arbeitsweise mit den Tools
 

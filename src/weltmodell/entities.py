@@ -26,7 +26,26 @@ def create_entity(
             f"Unbekannter Typ '{type_id}' — neue Typen nur durchs Gate (§7.1)"
         )
     if type_row["abstract"]:
-        raise ValidationError(f"Typ '{type_id}' ist abstrakt — konkreten Subtyp wählen")
+        concrete = [
+            r["id"]
+            for r in conn.execute(
+                """WITH RECURSIVE down AS (
+                     SELECT id FROM entity_type WHERE parent_id = %s
+                     UNION ALL
+                     SELECT t.id FROM entity_type t JOIN down ON t.parent_id = down.id
+                   )
+                   SELECT d.id FROM down d
+                   JOIN entity_type t ON t.id = d.id
+                   WHERE NOT t.abstract ORDER BY d.id""",
+                (type_id,),
+            ).fetchall()
+        ]
+        hint = (
+            f" — konkrete Subtypen: {', '.join(concrete)}"
+            if concrete
+            else " und hat noch keine konkreten Subtypen"
+        )
+        raise ValidationError(f"Typ '{type_id}' ist abstrakt, nicht instanziierbar{hint}")
     embedding = None
     text = embed_text or label
     if text and "Embeddable" in type_interfaces(conn, type_id):

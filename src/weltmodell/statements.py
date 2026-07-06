@@ -163,6 +163,28 @@ def commit_statement(
         conn, subject_id=subject_id, predicate_id=predicate_id, value=value
     )
 
+    # identifying-Keys: derselbe Wert auf derselben Entity wird RE-BESTÄTIGT
+    # (neue Reference ans bestehende Statement, Snapshot-Philosophie) statt
+    # dupliziert — der partielle Unique-Index (0014) machte die Dublette sonst
+    # zum DB-Fehler. Derselbe Wert auf einer ANDEREN Entity bleibt ein Fehler
+    # (echte Dublette, per Index erzwungen).
+    if cols["value_type"] == "string" and get_predicate(conn, predicate_id)["identifying"]:
+        existing = conn.execute(
+            """SELECT * FROM statement
+               WHERE subject_id = %s AND predicate_id = %s AND value_text = %s
+                 AND system_to IS NULL AND rank <> 'deprecated'""",
+            (subject_id, predicate_id, cols["value_text"]),
+        ).fetchone()
+        if existing:
+            for sid in source_ids:
+                conn.execute(
+                    """INSERT INTO reference (statement_id, source_id)
+                       VALUES (%s, %s) ON CONFLICT DO NOTHING""",
+                    (existing["id"], sid),
+                )
+            existing["flags"] = ["reconfirmed"]
+            return existing
+
     row = conn.execute(
         """INSERT INTO statement
              (subject_id, predicate_id, value_type, object_id, value_text,

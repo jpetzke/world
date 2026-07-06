@@ -550,10 +550,12 @@ async def welt_merge_entities(entity_id: str, target_id: str) -> dict[str, Any]:
 @mcp.tool()
 async def welt_propose_type(
     type_id: str,
-    parent_id: str,
     kind: Literal["continuant", "occurrent"],
     label: str,
+    parent_id: str | None = None,
     interfaces: list[str] | None = None,
+    label_predicate: str | None = None,
+    abstract: bool = False,
     wikidata_qid: str | None = None,
     rationale: str | None = None,
     proposed_by: str = "mcp-agent",
@@ -561,11 +563,16 @@ async def welt_propose_type(
     """Neuen Entity-Typ vorschlagen (Review-Gate, Invariante 2). Vorher den
     Entscheidungsbaum der Verfassung durchgehen — oft ist ein Statement oder
     ein vorhandener Typ die richtige Antwort. kind muss zum Parent passen
-    (Continuant/Occurrent-Split). rationale: warum dieser Ast, dieses kind."""
+    (Continuant/Occurrent-Split); parent_id=null legt eine neue Wurzel an
+    (Ausnahme — in vorhandene Äste hängen bleibt die Regel). label_predicate:
+    welches Prädikat den Anzeige-Bezeichner trägt (muss existieren und
+    domain-kompatibel sein). abstract=true macht den Typ nicht instanziierbar.
+    rationale: warum dieser Ast, dieses kind."""
     _require_write()
     return await _run(
         partial(registry.propose_type, type_id=type_id, parent_id=parent_id,
                 kind=kind, label=label, interfaces=interfaces or [],
+                label_predicate=label_predicate, abstract=abstract,
                 wikidata_qid=wikidata_qid, rationale=rationale,
                 proposed_by=proposed_by)
     )
@@ -581,6 +588,7 @@ async def welt_propose_predicate(
     range_type: str | None = None,
     cardinality: str | None = None,
     inverse_id: str | None = None,
+    identifying: bool = False,
     wikidata_pid: str | None = None,
     schema_org: str | None = None,
     rationale: str | None = None,
@@ -588,16 +596,20 @@ async def welt_propose_predicate(
 ) -> dict[str, Any]:
     """Neues Prädikat vorschlagen (Review-Gate). Domain so hoch wie möglich
     (Typ ODER Interface), Range eng aber subtyp-offen, scharfe Rollen-Prädikate
-    statt participant+Qualifier, Verfeinerung ist Qualifier-Job. wikidata_pid/
-    schema_org mitgeben, wo es das extern gibt."""
+    statt participant+Qualifier, Verfeinerung ist Qualifier-Job.
+    identifying=true macht das Prädikat zum harten Dedup-Key (§7.2) —
+    erfordert range_kind='string' + cardinality='1:1'; die DB erzwingt dann
+    Eindeutigkeit pro Wert. wikidata_pid/schema_org mitgeben, wo es das
+    extern gibt."""
     _require_write()
     return await _run(
         partial(registry.propose_predicate, predicate_id=predicate_id,
                 label=label, range_kind=range_kind, domain_type=domain_type,
                 domain_interface=domain_interface, range_type=range_type,
                 cardinality=cardinality, inverse_id=inverse_id,
-                wikidata_pid=wikidata_pid, schema_org=schema_org,
-                rationale=rationale, proposed_by=proposed_by)
+                identifying=identifying, wikidata_pid=wikidata_pid,
+                schema_org=schema_org, rationale=rationale,
+                proposed_by=proposed_by)
     )
 
 

@@ -10,6 +10,7 @@ domain/range/cardinality.
 from typing import Any
 
 import psycopg
+from psycopg import sql
 
 from .errors import NotFoundError, RegistryError
 
@@ -92,10 +93,12 @@ def propose_type(
     conn: psycopg.Connection,
     *,
     type_id: str,
-    parent_id: str,
     kind: str,
     label: str,
+    parent_id: str | None = None,
     interfaces: list[str] | None = None,
+    label_predicate: str | None = None,
+    abstract: bool = False,
     wikidata_qid: str | None = None,
     rationale: str | None = None,
     proposed_by: str,
@@ -104,36 +107,67 @@ def propose_type(
         raise RegistryError(f"Typ '{type_id}' existiert bereits")
     return conn.execute(
         """INSERT INTO proposed_type
-             (type_id, parent_id, kind, label, interfaces, wikidata_qid,
-              rationale, proposed_by)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *""",
-        (type_id, parent_id, kind, label, interfaces or [], wikidata_qid,
-         rationale, proposed_by),
+             (type_id, parent_id, kind, label, interfaces, label_predicate,
+              abstract, wikidata_qid, rationale, proposed_by)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+        (type_id, parent_id, kind, label, interfaces or [], label_predicate,
+         abstract, wikidata_qid, rationale, proposed_by),
     ).fetchone()
 
 
 def approve_type(conn: psycopg.Connection, proposal_id: str) -> dict:
     prop = _pending(conn, "proposed_type", proposal_id)
-    parent = get_type(conn, prop["parent_id"])
-    if parent is None:
-        raise RegistryError(f"Parent-Typ '{prop['parent_id']}' existiert nicht")
-    if parent["kind"] != prop["kind"]:
-        raise RegistryError(
-            "Continuant/Occurrent-Split ist heilig (Invariante 5): "
-            f"Kind '{prop['kind']}' widerspricht Parent-Kind '{parent['kind']}'"
-        )
+    # Alle Checks VOR den Inserts: eine RegistryError ist eine Python-Exception,
+    # kein DB-Fehler — sie rollt die Transaktion nicht automatisch zurück.
+    if prop["parent_id"] is None:
+        # Root-Typ: es gibt keinen Parent-Kind-Match — nur das kind-Etikett
+        # selbst wird validiert (Invariante 5 beginnt an der Wurzel).
+        if prop["kind"] not in ("continuant", "occurrent"):
+            raise RegistryError(f"Ungültiges kind '{prop['kind']}'")
+    else:
+        parent = get_type(conn, prop["parent_id"])
+        if parent is None:
+            raise RegistryError(f"Parent-Typ '{prop['parent_id']}' existiert nicht")
+        if parent["kind"] != prop["kind"]:
+            raise RegistryError(
+                "Continuant/Occurrent-Split ist heilig (Invariante 5): "
+                f"Kind '{prop['kind']}' widerspricht Parent-Kind '{parent['kind']}'"
+            )
     if get_type(conn, prop["type_id"]):
         raise RegistryError(f"Typ '{prop['type_id']}' existiert bereits")
     known = {i["id"] for i in list_interfaces(conn)}
     unknown = set(prop["interfaces"]) - known
     if unknown:
         raise RegistryError(f"Unbekannte Interfaces: {sorted(unknown)}")
+    if prop["label_predicate"] is not None:
+        lp = get_predicate(conn, prop["label_predicate"])
+        if lp is None:
+            raise RegistryError(
+                f"label_predicate '{prop['label_predicate']}' existiert nicht"
+            )
+        # Domain-Kompatibilität ohne den (noch nicht existierenden) Typ:
+        # Typ-Domains müssen ein Ancestor des Parents sein, Interface-Domains
+        # von den eigenen oder geerbten Interfaces abgedeckt.
+        ancestors = type_ancestors(conn, prop["parent_id"]) if prop["parent_id"] else []
+        ifaces = set(prop["interfaces"])
+        if prop["parent_id"]:
+            ifaces |= type_interfaces(conn, prop["parent_id"])
+        ok = (lp["domain_type"] in ancestors if lp["domain_type"] else False) or (
+            lp["domain_interface"] in ifaces if lp["domain_interface"] else False
+        )
+        if not ok:
+            raise RegistryError(
+                f"label_predicate '{prop['label_predicate']}' ist nicht "
+                f"domain-kompatibel zu '{prop['type_id']}' (erwartet: "
+                f"{lp['domain_type'] or lp['domain_interface']})"
+            )
 
     conn.execute(
-        """INSERT INTO entity_type (id, parent_id, kind, label, wikidata_qid)
-           VALUES (%s, %s, %s, %s, %s)""",
+        """INSERT INTO entity_type
+             (id, parent_id, kind, label, abstract, label_predicate, wikidata_qid)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
         (prop["type_id"], prop["parent_id"], prop["kind"], prop["label"],
-         prop["wikidata_qid"]),
+         prop["abstract"], prop["label_predicate"], prop["wikidata_qid"]),
     )
     for iface in prop["interfaces"]:
         conn.execute(
@@ -157,6 +191,7 @@ def propose_predicate(
     range_type: str | None = None,
     cardinality: str | None = None,
     inverse_id: str | None = None,
+    identifying: bool = False,
     wikidata_pid: str | None = None,
     schema_org: str | None = None,
     rationale: str | None = None,
@@ -167,13 +202,13 @@ def propose_predicate(
     return conn.execute(
         """INSERT INTO proposed_predicate
              (predicate_id, label, domain_type, domain_interface, range_kind,
-              range_type, cardinality, inverse_id, wikidata_pid, schema_org,
-              rationale, proposed_by)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              range_type, cardinality, inverse_id, identifying, wikidata_pid,
+              schema_org, rationale, proposed_by)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
            RETURNING *""",
         (predicate_id, label, domain_type, domain_interface, range_kind,
-         range_type, cardinality, inverse_id, wikidata_pid, schema_org,
-         rationale, proposed_by),
+         range_type, cardinality, inverse_id, identifying, wikidata_pid,
+         schema_org, rationale, proposed_by),
     ).fetchone()
 
 
@@ -202,17 +237,29 @@ def approve_predicate(conn: psycopg.Connection, proposal_id: str) -> dict:
         raise RegistryError("range_type nur bei range_kind='entity' erlaubt")
     if prop["inverse_id"] and prop["inverse_id"] != prop["predicate_id"] and not get_predicate(conn, prop["inverse_id"]):
         raise RegistryError(f"Inverses Prädikat '{prop['inverse_id']}' existiert nicht")
+    if prop["identifying"] and (
+        prop["range_kind"] != "string" or prop["cardinality"] != "1:1"
+    ):
+        raise RegistryError(
+            "identifying erfordert range_kind='string' und cardinality='1:1' "
+            "(Stufe-1-Resolve matcht exakt auf value_text, §7.2) — ist "
+            f"range_kind='{prop['range_kind']}', cardinality='{prop['cardinality']}'"
+        )
+    if prop["identifying"]:
+        # Vor den Inserts: der Konflikt-Check wirft eine RegistryError, und die
+        # rollt als Python-Exception die Transaktion nicht automatisch zurück.
+        ensure_identifying_index(conn, prop["predicate_id"])
 
     conn.execute(
         """INSERT INTO predicate
              (id, label, domain_type, domain_interface, range_kind, range_type,
-              cardinality, inverse_id, wikidata_pid, schema_org)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+              cardinality, inverse_id, identifying, wikidata_pid, schema_org)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (prop["predicate_id"], prop["label"], prop["domain_type"],
          prop["domain_interface"], prop["range_kind"], prop["range_type"],
          prop["cardinality"],
          prop["predicate_id"] if prop["inverse_id"] == prop["predicate_id"] else prop["inverse_id"],
-         prop["wikidata_pid"], prop["schema_org"]),
+         prop["identifying"], prop["wikidata_pid"], prop["schema_org"]),
     )
     # Gegenrichtung automatisch eintragen (§2.3)
     if prop["inverse_id"] and prop["inverse_id"] != prop["predicate_id"]:
@@ -221,6 +268,41 @@ def approve_predicate(conn: psycopg.Connection, proposal_id: str) -> dict:
             (prop["predicate_id"], prop["inverse_id"]),
         )
     return _decide(conn, "proposed_predicate", proposal_id, "approved")
+
+
+def ensure_identifying_index(conn: psycopg.Connection, predicate_id: str) -> None:
+    """DB-seitiger Dubletten-Schutz für einen identifying-Key: partieller
+    Unique-Index über (predicate_id, value_text) auf aktuellen, nicht-
+    deprecated Statements. Bestandsdaten werden vorher geprüft — Konflikte
+    werden berichtet (RegistryError mit Liste), nie stumm bereinigt.
+    Gegenstück zur Migration 0014: Gate und Migration erfüllen dieselben Regeln.
+    """
+    dups = conn.execute(
+        """SELECT value_text, count(*) AS n FROM statement
+           WHERE predicate_id = %s AND system_to IS NULL
+             AND rank <> 'deprecated' AND value_text IS NOT NULL
+           GROUP BY value_text HAVING count(*) > 1
+           ORDER BY value_text""",
+        (predicate_id,),
+    ).fetchall()
+    if dups:
+        detail = "; ".join(f"'{d['value_text']}' ({d['n']} Statements)" for d in dups)
+        raise RegistryError(
+            f"identifying für '{predicate_id}' nicht durchsetzbar — Bestandsdaten "
+            f"haben Dubletten: {detail}. Erst kuratieren (welt_merge_entities / "
+            "welt_fix_statement), dann erneut."
+        )
+    conn.execute(
+        sql.SQL(
+            """CREATE UNIQUE INDEX IF NOT EXISTS {name}
+               ON statement (predicate_id, value_text)
+               WHERE predicate_id = {pred} AND system_to IS NULL
+                 AND rank <> 'deprecated'"""
+        ).format(
+            name=sql.Identifier(f"statement_ident_{predicate_id}_uniq"),
+            pred=sql.Literal(predicate_id),
+        )
+    )
 
 
 # --- Gemeinsames -------------------------------------------------------------

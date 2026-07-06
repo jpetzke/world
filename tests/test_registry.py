@@ -109,3 +109,168 @@ def test_finance_seed_0011(conn):
     qid = registry.get_predicate(conn, "wikidata_qid")
     assert qid["domain_type"] is None
     assert qid["domain_interface"] == "Nameable"
+
+
+# --- Paket 1 (0013/0014): Root-Typen, identifying, label_predicate, abstract ---
+
+
+def test_root_type_via_gate(conn):
+    prop = registry.propose_type(
+        conn, type_id="TestWurzel", kind="continuant", label="Test-Wurzel",
+        rationale="Root-Typ-Test", proposed_by="pytest",
+    )
+    assert prop["parent_id"] is None
+    registry.approve_type(conn, str(prop["id"]))
+    assert registry.get_type(conn, "TestWurzel")["parent_id"] is None
+    assert registry.type_ancestors(conn, "TestWurzel") == ["TestWurzel"]
+    assert any(t["id"] == "TestWurzel" for t in registry.vocabulary(conn)["types"])
+
+
+def test_root_fehlwege_bleiben_fehler(conn):
+    # 'Continuant' ist bewusst kein Typ (kind ist das Etikett)
+    p1 = registry.propose_type(
+        conn, type_id="Kaputt1", parent_id="Continuant", kind="continuant",
+        label="x", proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="existiert nicht"):
+        registry.approve_type(conn, str(p1["id"]))
+    # Leerstring ist KEIN Root-Signal — nur echtes null
+    p2 = registry.propose_type(
+        conn, type_id="Kaputt2", parent_id="", kind="continuant",
+        label="x", proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="existiert nicht"):
+        registry.approve_type(conn, str(p2["id"]))
+    # Selbstreferenz
+    p3 = registry.propose_type(
+        conn, type_id="Kaputt3", parent_id="Kaputt3", kind="continuant",
+        label="x", proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="existiert nicht"):
+        registry.approve_type(conn, str(p3["id"]))
+
+
+def test_identifying_proposebar_roundtrip(conn, source_id):
+    from weltmodell.entities import create_entity
+    from weltmodell.resolution import resolve
+    from weltmodell.statements import commit_statement
+
+    prop = registry.propose_predicate(
+        conn, predicate_id="test_kennung", label="Test-Kennung",
+        range_kind="string", domain_type="Person", cardinality="1:1",
+        identifying=True, proposed_by="pytest",
+    )
+    registry.approve_predicate(conn, str(prop["id"]))
+    assert registry.get_predicate(conn, "test_kennung")["identifying"] is True
+
+    person = create_entity(conn, type_id="Person", label="Kennung Person")
+    commit_statement(
+        conn, subject_id=str(person["id"]), predicate_id="test_kennung",
+        value={"type": "string", "text": "KEY-123"}, source_ids=[source_id],
+    )
+    res = resolve(conn, type_id="Person", identifiers={"test_kennung": "KEY-123"})
+    assert res["match"] == str(person["id"])
+    assert res["method"] == "deterministic:test_kennung"
+
+
+def test_identifying_erfordert_string_1_1(conn):
+    p1 = registry.propose_predicate(
+        conn, predicate_id="kaputt_ident_card", label="x", range_kind="string",
+        domain_type="Person", cardinality="1:n", identifying=True,
+        proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="identifying"):
+        registry.approve_predicate(conn, str(p1["id"]))
+    p2 = registry.propose_predicate(
+        conn, predicate_id="kaputt_ident_range", label="x", range_kind="number",
+        domain_type="Person", cardinality="1:1", identifying=True,
+        proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="identifying"):
+        registry.approve_predicate(conn, str(p2["id"]))
+
+
+def test_identifying_index_blockt_dublette(conn, source_id):
+    import psycopg
+
+    from weltmodell.entities import create_entity
+    from weltmodell.statements import commit_statement
+
+    prop = registry.propose_predicate(
+        conn, predicate_id="test_kennung_uniq", label="x", range_kind="string",
+        domain_type="Person", cardinality="1:1", identifying=True,
+        proposed_by="pytest",
+    )
+    registry.approve_predicate(conn, str(prop["id"]))
+
+    e1 = create_entity(conn, type_id="Person", label="Uniq Eins")
+    e2 = create_entity(conn, type_id="Person", label="Uniq Zwei")
+    commit_statement(
+        conn, subject_id=str(e1["id"]), predicate_id="test_kennung_uniq",
+        value={"type": "string", "text": "DUP-1"}, source_ids=[source_id],
+    )
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        commit_statement(
+            conn, subject_id=str(e2["id"]), predicate_id="test_kennung_uniq",
+            value={"type": "string", "text": "DUP-1"}, source_ids=[source_id],
+        )
+    conn.rollback()
+
+
+def test_ensure_identifying_index_berichtet_konflikte(conn, source_id):
+    from weltmodell.entities import create_entity
+    from weltmodell.statements import commit_statement
+
+    e1 = create_entity(conn, type_id="Person", label="Konflikt Eins")
+    e2 = create_entity(conn, type_id="Person", label="Konflikt Zwei")
+    for e in (e1, e2):
+        commit_statement(
+            conn, subject_id=str(e["id"]), predicate_id="alias",
+            value={"type": "string", "text": "Doppelalias"}, source_ids=[source_id],
+        )
+    # Gleiche Semantik wie Migration 0014: berichten, nicht bereinigen
+    with pytest.raises(RegistryError, match="Dubletten"):
+        registry.ensure_identifying_index(conn, "alias")
+    conn.rollback()
+
+
+def test_label_predicate_und_abstract_via_gate(conn, source_id):
+    from weltmodell.entities import create_entity
+    from weltmodell.errors import ValidationError
+    from weltmodell.statements import commit_statement
+
+    root = registry.propose_type(
+        conn, type_id="TestAst", kind="continuant", label="Test-Ast",
+        abstract=True, interfaces=["Nameable"], proposed_by="pytest",
+    )
+    registry.approve_type(conn, str(root["id"]))
+    child = registry.propose_type(
+        conn, type_id="TestBlatt", parent_id="TestAst", kind="continuant",
+        label="Test-Blatt", label_predicate="name", proposed_by="pytest",
+    )
+    registry.approve_type(conn, str(child["id"]))
+    assert registry.get_type(conn, "TestBlatt")["label_predicate"] == "name"
+
+    # abstract: nicht instanziierbar, Fehlertext nennt die konkreten Kindtypen
+    with pytest.raises(ValidationError, match="TestBlatt"):
+        create_entity(conn, type_id="TestAst")
+
+    # label_predicate wirkt: name-Statement aktualisiert den Label-Cache
+    e = create_entity(conn, type_id="TestBlatt", label="alt")
+    commit_statement(
+        conn, subject_id=str(e["id"]), predicate_id="name",
+        value={"type": "string", "text": "Neuer Name"}, source_ids=[source_id],
+    )
+    label = conn.execute(
+        "SELECT label FROM entity WHERE id = %s", (e["id"],)
+    ).fetchone()["label"]
+    assert label == "Neuer Name"
+
+
+def test_label_predicate_domain_inkompatibel(conn):
+    p = registry.propose_type(
+        conn, type_id="KaputtLabel", parent_id="Person", kind="continuant",
+        label="x", label_predicate="handle", proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="domain-kompatibel"):
+        registry.approve_type(conn, str(p["id"]))
