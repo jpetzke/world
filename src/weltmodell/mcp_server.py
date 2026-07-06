@@ -542,7 +542,9 @@ async def welt_merge_entities(entity_id: str, target_id: str) -> dict[str, Any]:
     auf target_id umgebogen, Provenance beider Seiten bleibt erhalten.
     Nicht umkehrbar — vorher per welt_entity beide Seiten prüfen."""
     _require_write()
-    return await _run(partial(resolution.merge_entity, entity_id, target_id))
+    return await _run(
+        partial(resolution.merge_entity, source_id=entity_id, target_id=target_id)
+    )
 
 
 @mcp.tool()

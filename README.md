@@ -27,6 +27,26 @@ uv run pytest                    # Backend (legt weltmodell_test an)
 cd frontend && npm test          # Frontend (vitest)
 ```
 
+## Smoke-Suite — vor jedem Deploy
+
+`tests/test_smoke.py` ruft **jedes MCP-Tool einmal erfolgreich** gegen die
+ephemere Test-DB auf (inkl. Vollständigkeits-Guard: ein Tool ohne Smoke-Aufruf
+bricht die Suite). Fängt die Regression-Klasse „Tool crasht bei jedem Aufruf"
+ab, bevor sie deployed wird.
+
+```bash
+# Lokal (braucht die Podman-DB auf :5433, s. Quickstart):
+uv run pytest -m smoke
+
+# Im Container (identisches Kommando, Repo gemountet, Host-Netz für die DB):
+podman run --rm --network=host --security-opt label=disable \
+  -v .:/work -w /work -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+  ghcr.io/astral-sh/uv:bookworm-slim uv run pytest -m smoke
+```
+
+Vor jedem Deploy (Push auf `main` → Coolify) ausführen; erst bei grüner Suite
+pushen.
+
 Frontend-Dev mit Hot-Reload: `cd frontend && npm run dev` → http://localhost:5174
 (Proxy auf die API unter :8100).
 
