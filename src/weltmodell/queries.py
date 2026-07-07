@@ -125,6 +125,7 @@ def query_statements(
     offset: int = 0,
     aggregate: str | None = None,
     group_by: str | None = None,
+    output: str = "full",
 ) -> dict[str, Any]:
     """Statement-zentrierte Suche (viertes Standbein neben Search, Entity-View
     und Traverse). Alle Filter optional und kombinierbar; bitemporale Filter
@@ -134,6 +135,9 @@ def query_statements(
     aggregate: count | sum | avg — statt der Liste. sum/avg nur über number-
     und quantity-Values, bei quantity nach unit gruppiert. group_by
     (subject | object) gruppiert zusätzlich nach Entity.
+
+    output: full (Default, heutiges Verhalten: Statements mit Qualifiern +
+    Quellen) | compact (ohne Qualifier/Quellen) | ids (nur Statement-IDs).
     """
     if group_by and not aggregate:
         raise ValidationError("group_by nur zusammen mit aggregate")
@@ -141,6 +145,10 @@ def query_statements(
         raise ValidationError(f"Ungültiges group_by '{group_by}'")
     if aggregate not in (None, "count", "sum", "avg"):
         raise ValidationError(f"Ungültiges aggregate '{aggregate}'")
+    if output not in ("ids", "compact", "full"):
+        raise ValidationError(
+            f"Ungültiges output '{output}' (erlaubt: ids, compact, full)"
+        )
 
     params: dict[str, Any] = {
         "subject_id": canonical_id(conn, subject_id) if subject_id else None,
@@ -203,6 +211,15 @@ def query_statements(
     total = conn.execute(
         f"SELECT count(*) AS n FROM statement s {where}", params
     ).fetchone()["n"]
+    if output == "ids":
+        rows = conn.execute(
+            f"""SELECT s.id FROM statement s {where}
+                ORDER BY CASE s.rank WHEN 'preferred' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+                         s.confidence DESC, s.system_from
+                LIMIT %(limit)s OFFSET %(offset)s""",
+            params,
+        ).fetchall()
+        return {"ids": [str(r["id"]) for r in rows], "total": total}
     statements = conn.execute(
         f"""SELECT s.*, e.label AS object_label, e.type_id AS object_type,
                    subj.label AS subject_label, subj.type_id AS subject_type,
@@ -216,7 +233,11 @@ def query_statements(
             LIMIT %(limit)s OFFSET %(offset)s""",
         params,
     ).fetchall()
-    _attach_qualifiers_and_references(conn, statements)
+    if output == "full":
+        _attach_qualifiers_and_references(conn, statements)
+    else:
+        for s in statements:
+            s.pop("value_geo", None)
     return {"statements": statements, "total": total}
 
 
@@ -323,6 +344,7 @@ def neighborhood(
     max_nodes: int = 400,
     min_confidence: float | None = None,
     rank: str | None = None,
+    output: str = "full",
 ) -> dict[str, Any]:
     """Ungerichtete k-Hop-Nachbarschaft als induzierter Teilgraph (§0, §10).
 
@@ -336,7 +358,15 @@ def neighborhood(
     Knoten (kleinste Hop-Distanz) behalten; total_nodes nennt die echte Größe.
     min_confidence/rank filtern die Kanten wie in query_statements:
     confidence >= x, rank exakt (ersetzt den deprecated-Ausschluss).
+
+    output: full (Default, heutiges Verhalten: nodes mit degree/depth +
+    edges) | compact (nodes als {id, label, type_id} + edges) | ids (nur
+    Node-IDs, keine edges).
     """
+    if output not in ("ids", "compact", "full"):
+        raise ValidationError(
+            f"Ungültiges output '{output}' (erlaubt: ids, compact, full)"
+        )
     start_id = canonical_id(conn, start_id)
     edge_filter = """
                AND ((%(rank)s::text IS NOT NULL AND s.rank = %(rank)s)
@@ -372,17 +402,28 @@ def neighborhood(
     ids = [r["node_id"] for r in kept]
     depth_by = {str(r["node_id"]): r["depth"] for r in kept}
 
-    nodes = conn.execute(
-        """SELECT id, type_id, label,
-                  (SELECT count(*) FROM statement s
-                   WHERE (s.subject_id = entity.id OR s.object_id = entity.id)
-                     AND s.system_to IS NULL AND s.rank <> 'deprecated'
-                     AND s.value_type = 'entity') AS degree
-           FROM entity WHERE id = ANY(%s)""",
-        (ids,),
-    ).fetchall()
-    for n in nodes:
-        n["depth"] = depth_by[str(n["id"])]
+    if output == "ids":
+        return {
+            "nodes": [str(i) for i in ids],
+            "total_nodes": total,
+            "start_id": str(start_id),
+        }
+    if output == "compact":
+        nodes = conn.execute(
+            "SELECT id, label, type_id FROM entity WHERE id = ANY(%s)", (ids,)
+        ).fetchall()
+    else:
+        nodes = conn.execute(
+            """SELECT id, type_id, label,
+                      (SELECT count(*) FROM statement s
+                       WHERE (s.subject_id = entity.id OR s.object_id = entity.id)
+                         AND s.system_to IS NULL AND s.rank <> 'deprecated'
+                         AND s.value_type = 'entity') AS degree
+               FROM entity WHERE id = ANY(%s)""",
+            (ids,),
+        ).fetchall()
+        for n in nodes:
+            n["depth"] = depth_by[str(n["id"])]
 
     edges = conn.execute(
         f"""SELECT s.id, s.subject_id, s.object_id, s.predicate_id,

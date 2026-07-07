@@ -36,6 +36,7 @@ from pydantic_core import to_jsonable_python
 from starlette.routing import Route
 
 from . import (
+    analysis,
     follower_import,
     pipeline,
     queries,
@@ -343,6 +344,7 @@ async def welt_query(
     offset: int = 0,
     aggregate: Literal["count", "sum", "avg"] | None = None,
     group_by: Literal["subject", "object"] | None = None,
+    output: Literal["ids", "compact", "full"] = "full",
 ) -> dict[str, Any]:
     """Statement-zentrierte Suche — viertes Standbein neben welt_search,
     welt_entity und welt_traverse. Alle Filter optional und kombinierbar:
@@ -353,14 +355,16 @@ async def welt_query(
     Qualifiern + Quellen (Serialisierung wie welt_entity) und total.
     aggregate=count|sum|avg statt der Liste; sum/avg nur über number- und
     quantity-Werte, bei quantity pro unit gruppiert; group_by=subject|object
-    gruppiert nach Entity."""
+    gruppiert nach Entity. output: full (Default) | compact (Statements ohne
+    Qualifier/Quellen) | ids (nur Statement-IDs, limit bis 5000)."""
     return await _run(
         partial(queries.query_statements, subject_id=subject_id,
                 predicate_id=predicate_id, object_id=object_id,
                 value_text=value_text, min_confidence=min_confidence,
                 rank=rank, valid_at=valid_at, system_at=system_at,
-                limit=min(limit, 200), offset=offset,
-                aggregate=aggregate, group_by=group_by)
+                limit=min(limit, 5000 if output == "ids" else 200),
+                offset=offset, aggregate=aggregate, group_by=group_by,
+                output=output)
     )
 
 
@@ -380,17 +384,217 @@ async def welt_traverse(
     max_nodes: int = 60,
     min_confidence: float | None = None,
     rank: Literal["preferred", "normal", "deprecated"] | None = None,
+    output: Literal["ids", "compact", "full"] = "full",
 ) -> dict[str, Any]:
     """Graph-Nachbarschaft (k-Hop, ungerichtet, zyklensicher) als Teilgraph:
     nodes (id, label, type_id, degree, depth) + edges (subject→object mit
     Prädikat). predicates schränkt auf bestimmte Kanten ein. total_nodes
     nennt die echte Größe, wenn max_nodes kappt. min_confidence/rank filtern
-    die Kanten wie in welt_query (rank exakt)."""
+    die Kanten wie in welt_query (rank exakt). output: full (Default,
+    heutige Node/Edge-Form) | compact (nodes als {id, label, type_id}) |
+    ids (nur Node-IDs, max_nodes bis 5000)."""
     return await _run(
         partial(queries.neighborhood, start_id=start_id, max_depth=max_depth,
-                predicates=predicates, max_nodes=min(max_nodes, 500),
-                min_confidence=min_confidence, rank=rank)
+                predicates=predicates,
+                max_nodes=min(max_nodes, 5000 if output == "ids" else 500),
+                min_confidence=min_confidence, rank=rank, output=output)
     )
+
+
+# --- Analyse (read-only, ein Roundtrip statt vieler Einzel-Calls) ---------------
+
+
+@mcp.tool()
+async def welt_match(
+    patterns: list[dict[str, Any]],
+    select: list[str],
+    min_confidence: float | None = None,
+    valid_at: str | None = None,
+    system_at: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    output: Literal["ids", "compact", "full"] = "compact",
+) -> dict[str, Any]:
+    """Konjunktives Triple-Pattern-Matching — DAS Werkzeug für Graph-Fragen
+    wie „wer folgt sowohl A als auch B" oder „Accounts von Personen, die X
+    kennt". patterns: Liste von {"s":…, "p":…, "o":…}; jede Position eine
+    konkrete ID, eine Variable "?name" oder (nur am Objekt)
+    {"value_text":"…"}. Gleiche Variable in mehreren Patterns = Join;
+    Variablen sind auch an Prädikat-Position erlaubt (binden Prädikat-IDs).
+    select nennt die zurückzugebenden Variablen. Merge-Ketten werden
+    aufgelöst, deprecated ist unsichtbar; min_confidence/valid_at/system_at
+    wie in welt_query. Liefert bindings + total (stabil über Pagination).
+    Für Filter mit nur EINEM Pattern reicht welt_query."""
+    return await _run(
+        partial(analysis.match, patterns=patterns, select=select,
+                min_confidence=min_confidence, valid_at=valid_at,
+                system_at=system_at, limit=limit, offset=offset,
+                output=output)
+    )
+
+
+@mcp.tool()
+async def welt_set(
+    operation: Literal["intersect", "union", "difference"],
+    queries: list[dict[str, Any]],
+    on: Literal["subject", "object"] = "subject",
+    limit: int = 1000,
+    output: Literal["ids", "compact", "full"] = "compact",
+) -> dict[str, Any]:
+    """Mengenalgebra über 2–10 Statement-Queries: intersect | union |
+    difference (= erste Query minus alle weiteren). Jede Query ist ein
+    Filterset wie in welt_query: {"predicate_id"?, "object_id"?,
+    "subject_id"?, "value_text"?, "min_confidence"?, "valid_at"?}. on
+    bestimmt, ob über subject- oder object-IDs operiert wird. Beispiel
+    „folgt A, aber nicht B": difference über zwei follows-Queries mit
+    on=subject. Liefert entities + total."""
+    return await _run(
+        partial(analysis.set_operation, operation=operation, queries=queries,
+                on=on, limit=limit, output=output)
+    )
+
+
+@mcp.tool()
+async def welt_path(
+    start_id: str,
+    end_id: str,
+    max_depth: int = 4,
+    max_paths: int = 5,
+    predicates: list[str] | None = None,
+    min_confidence: float | None = None,
+    output: Literal["ids", "compact", "full"] = "compact",
+) -> dict[str, Any]:
+    """Kürzeste Pfade zwischen zwei Entities („über wen kennen sich X und
+    Y?") — ungerichtet, zyklensicher, max_depth hart auf 6 gekappt. Liefert
+    Pfade als geordnete Knoten- und Kantenlisten (Kante = subject, predicate,
+    object, direction), kürzeste zuerst, plus path_length und total (Anzahl
+    aller kürzesten Pfade). Kein Pfad → leere Liste mit message, kein Fehler.
+    predicates/min_confidence filtern die Kanten. Für die ganze Nachbarschaft
+    EINER Entity ist welt_traverse das richtige Tool."""
+    return await _run(
+        partial(analysis.paths, start_id=start_id, end_id=end_id,
+                max_depth=max_depth, max_paths=max_paths,
+                predicates=predicates, min_confidence=min_confidence,
+                output=output)
+    )
+
+
+@mcp.tool()
+async def welt_common(
+    entity_ids: list[str],
+    predicates: list[str] | None = None,
+    direction: Literal["in", "out", "both"] = "both",
+    min_shared: int = 2,
+    limit: int = 200,
+    output: Literal["ids", "compact", "full"] = "compact",
+) -> dict[str, Any]:
+    """Gemeinsame Nachbarn von 2–10 Entities (z. B. gemeinsame Follower
+    zweier Accounts: direction=in, predicates=[follows]). direction aus
+    Sicht der Eingabe-Entities: in = wer zeigt auf sie, out = worauf zeigen
+    sie, both = beides. Pro Nachbar: entity, shared_with (welche
+    Eingabe-Entities verbunden sind), shared_count; sortiert nach
+    shared_count absteigend. min_shared filtert („mindestens 2 von 3")."""
+    return await _run(
+        partial(analysis.common_neighbors, entity_ids=entity_ids,
+                predicates=predicates, direction=direction,
+                min_shared=min_shared, limit=limit, output=output)
+    )
+
+
+@mcp.tool()
+async def welt_rank(
+    metric: Literal["degree", "pagerank", "betweenness"],
+    predicates: list[str] | None = None,
+    type_id: str | None = None,
+    top: int = 20,
+) -> dict[str, Any]:
+    """Zentralität: die wichtigsten Knoten im Graphen. degree = Anzahl
+    Kanten (Statements), pagerank = globale Wichtigkeit, betweenness =
+    Brücken zwischen Regionen. predicates schränkt die Kanten ein, type_id
+    filtert die Ergebnis-Knoten subtypfähig (Agent findet Person). Liefert
+    Top-N als {id, label, type_id, score}."""
+    return await _run(
+        partial(analysis.rank_entities, metric=metric, predicates=predicates,
+                type_id=type_id, top=top)
+    )
+
+
+@mcp.tool()
+async def welt_cluster(
+    predicates: list[str] | None = None,
+    min_size: int = 3,
+    algorithm: Literal["label_propagation", "louvain"] = "label_propagation",
+) -> dict[str, Any]:
+    """Community-Detection: zusammenhängende Gruppen (Freundeskreise,
+    Themencluster) im (per predicates gefilterten) Graphen. Liefert Cluster
+    mit Membern ({id, label, type_id}) und Größe, größte zuerst; min_size
+    blendet Kleinstcluster aus. total nennt die Clusterzahl vor dem
+    min_size-Filter."""
+    return await _run(
+        partial(analysis.cluster, predicates=predicates, min_size=min_size,
+                algorithm=algorithm)
+    )
+
+
+@mcp.tool()
+async def welt_similar(
+    entity_id: str,
+    predicates: list[str] | None = None,
+    direction: Literal["in", "out", "both"] = "both",
+    top: int = 10,
+) -> dict[str, Any]:
+    """Strukturell ähnliche Entities: Jaccard über Nachbarmengen (z. B.
+    Accounts mit denselben Followern: direction=in). Liefert Top-N mit
+    score (0–1) und overlap (Größe der Schnittmenge). Entity ohne Nachbarn
+    → leere Liste. Für inhaltliche Ähnlichkeit über Embeddings ist
+    welt_search das richtige Tool."""
+    return await _run(
+        partial(analysis.similar, entity_id=entity_id, predicates=predicates,
+                direction=direction, top=top)
+    )
+
+
+@mcp.tool()
+async def welt_changes(
+    since: str,
+    until: str | None = None,
+    predicate_id: str | None = None,
+    subject_id: str | None = None,
+    kind: Literal["added", "deprecated", "all"] = "all",
+    limit: int = 200,
+    output: Literal["ids", "compact", "full"] = "compact",
+) -> dict[str, Any]:
+    """Was hat sich geändert? Diff auf der Systemzeit-Achse: Statements, die
+    im Fenster [since, until] entstanden (added, inkl. neuer Versionen durch
+    Supersession) oder deprecated wurden. since/until als ISO-Datetime,
+    until Default jetzt. Jedes Statement trägt change und changed_at.
+    Für die Historie EINER Entity ist welt_timeline das richtige Tool."""
+    return await _run(
+        partial(analysis.changes, since=since, until=until,
+                predicate_id=predicate_id, subject_id=subject_id,
+                kind=kind, limit=limit, output=output)
+    )
+
+
+@mcp.tool()
+async def welt_sql(query: str, limit: int = 500) -> dict[str, Any]:
+    """LETZTES MITTEL, wenn kein strukturiertes Tool passt (erst welt_query,
+    welt_match, welt_set, welt_common prüfen!): genau EIN read-only SELECT
+    gegen die dokumentierten Whitelist-Views —
+    v_entities (id, type_id, label, merged_into, created_at),
+    v_statements (id, subject_id, subject_label, predicate_id, object_id,
+      object_label, value_type, value_text, value_number, value_unit,
+      value_datetime, value_geojson, value_json, rank, confidence, origin,
+      valid_from, valid_to, system_from, system_to; aktuelle Sicht =
+      system_to IS NULL AND rank <> 'deprecated'),
+    v_qualifiers (id, statement_id, predicate_id, value_type, value_text,
+      value_number, value_datetime, object_id),
+    v_sources (id, url, activity, agent, retrieved_at, statement_id — eine
+      Zeile pro Quelle-Statement-Zuordnung).
+    Erzwungen: SELECT-only (geparst), nur diese Views, 5 s Timeout,
+    read-only Transaktion, Row-Cap limit. Merge-Ketten und
+    deprecated-Filter musst du hier SELBST beachten (merged_into, rank)."""
+    return await _run(partial(analysis.sql_query, query=query, limit=limit))
 
 
 @mcp.tool()

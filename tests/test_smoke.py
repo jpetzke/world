@@ -128,6 +128,49 @@ def test_query(smoke):
     assert agg["count"] >= 1
 
 
+def test_analyse_tools(smoke):
+    m = smoke("welt_match", {
+        "patterns": [{"s": "?p", "p": "owns_account", "o": S["account_id"]}],
+        "select": ["?p"],
+    })["structuredContent"]
+    assert m["total"] >= 1
+
+    s = smoke("welt_set", {
+        "operation": "union", "on": "subject",
+        "queries": [{"predicate_id": "owns_account"}, {"predicate_id": "knows"}],
+    })["structuredContent"]
+    assert s["total"] >= 1
+
+    p = smoke("welt_path", {
+        "start_id": S["person_id"], "end_id": S["account_id"],
+    })["structuredContent"]
+    assert p["paths"] and p["path_length"] == 1
+
+    c = smoke("welt_common", {
+        "entity_ids": [S["person_id"], S["account_id"]], "min_shared": 1,
+    })["structuredContent"]
+    assert "neighbors" in c and "total" in c
+
+    r = smoke("welt_rank", {"metric": "degree", "top": 200})["structuredContent"]
+    assert any(i["id"] == S["person_id"] for i in r["items"])
+
+    cl = smoke("welt_cluster", {"min_size": 1})["structuredContent"]
+    assert cl["total"] >= 1
+
+    sim = smoke("welt_similar", {"entity_id": S["person_id"]})["structuredContent"]
+    assert "items" in sim
+
+    ch = smoke("welt_changes", {
+        "since": "2000-01-01T00:00:00+00:00",
+    })["structuredContent"]
+    assert ch["total"] >= 1
+
+    sql = smoke("welt_sql", {
+        "query": "SELECT count(*) AS n FROM v_statements",
+    })["structuredContent"]
+    assert sql["rows"][0]["n"] >= 1
+
+
 def test_fix_entity(smoke):
     e = smoke("welt_create_entity", {
         "type_id": "Person", "label": "Smoke Wegwerf",
