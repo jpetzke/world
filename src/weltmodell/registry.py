@@ -62,6 +62,22 @@ def is_subtype(conn: psycopg.Connection, type_id: str, ancestor_id: str) -> bool
     return ancestor_id in type_ancestors(conn, type_id)
 
 
+def descendant_type_ids(conn: psycopg.Connection, type_id: str) -> list[str]:
+    """Typ + alle Subtypen — damit ein Filter auf einen abstrakten Typ (z. B.
+    Agent) auch dessen konkrete Subtypen (Person, Organization) findet."""
+    return [
+        r["id"]
+        for r in conn.execute(
+            """WITH RECURSIVE down AS (
+                 SELECT id FROM entity_type WHERE id = %s
+                 UNION ALL
+                 SELECT t.id FROM entity_type t JOIN down ON t.parent_id = down.id
+               ) SELECT id FROM down""",
+            (type_id,),
+        ).fetchall()
+    ]
+
+
 def type_interfaces(conn: psycopg.Connection, type_id: str) -> set[str]:
     """Implementierte Interfaces, inklusive der von Eltern-Typen geerbten."""
     ancestors = type_ancestors(conn, type_id)

@@ -16,7 +16,7 @@ import psycopg
 from .embeddings import get_embedder
 from .entities import canonical_id, create_entity, get_entity
 from .errors import ValidationError
-from .registry import get_predicate
+from .registry import descendant_type_ids, get_predicate
 
 VECTOR_CANDIDATE_THRESHOLD = 0.80  # Kosinus-Similarity → Merge-Kandidat
 VECTOR_AUTO_MATCH_THRESHOLD = 0.93  # darüber: Pipeline nutzt Kandidat direkt
@@ -34,10 +34,18 @@ def resolve(
 
     Returns {"match": id|None, "method": ..., "candidates": [...]}.
     """
+    warnings: list[str] = []
     # Stufe 1: deterministische Keys
     for pred_id, value in (identifiers or {}).items():
         pred = get_predicate(conn, pred_id)
         if pred is None or not pred["identifying"]:
+            # Stilles Ignorieren hieße: der Aufrufer glaubt, dedupliziert zu
+            # haben, und legt Dubletten an — laut sagen statt schlucken.
+            warnings.append(
+                f"identifier '{pred_id}' ist "
+                + ("unbekannt" if pred is None else "kein identifying-Prädikat")
+                + " — ignoriert"
+            )
             continue
         row = conn.execute(
             """SELECT e.id FROM statement s
@@ -49,33 +57,54 @@ def resolve(
             (pred_id, value),
         ).fetchone()
         if row:
-            return {
+            hit: dict[str, Any] = {
                 "match": str(row["id"]),
                 "method": f"deterministic:{pred_id}",
                 "candidates": [],
             }
+            if warnings:
+                hit["warnings"] = warnings
+            return hit
 
-    # Stufe 2: Vektor-Ähnlichkeit
+    # Stufe 2: Kandidaten über das Label. Typ-Filter subtypfähig (Agent findet
+    # Person/Organization). Erst exakte Label-Gleichheit (greift auch ohne
+    # Embedding, z. B. Platform, und bei case-Varianten), dann Vektor-Ähnlichkeit.
     candidates: list[dict[str, Any]] = []
     if label:
-        embedding = get_embedder().embed(f"{type_id}: {label}")
+        types = descendant_type_ids(conn, type_id)
+        exact = conn.execute(
+            """SELECT id, label, type_id FROM entity
+               WHERE merged_into IS NULL AND lower(label) = lower(%s)
+                 AND type_id = ANY(%s)
+               LIMIT %s""",
+            (label, types, limit),
+        ).fetchall()
+        candidates = [
+            {**r, "id": str(r["id"]), "similarity": 1.0} for r in exact
+        ]
+        seen = {c["id"] for c in candidates}
+        embedding = get_embedder().embed(label)
         rows = conn.execute(
             """SELECT id, label, type_id,
                       1 - (embedding <=> %s::vector) AS similarity
                FROM entity
                WHERE merged_into IS NULL AND embedding IS NOT NULL
-                 AND type_id = %s
+                 AND type_id = ANY(%s)
                ORDER BY embedding <=> %s::vector
                LIMIT %s""",
-            (embedding, type_id, embedding, limit),
+            (embedding, types, embedding, limit),
         ).fetchall()
-        candidates = [
+        candidates += [
             {**r, "id": str(r["id"]), "similarity": float(r["similarity"])}
             for r in rows
             if r["similarity"] >= VECTOR_CANDIDATE_THRESHOLD
+            and str(r["id"]) not in seen
         ]
 
-    return {"match": None, "method": None, "candidates": candidates}
+    result: dict[str, Any] = {"match": None, "method": None, "candidates": candidates}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def get_or_create_entity(

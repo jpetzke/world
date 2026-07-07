@@ -49,7 +49,10 @@ def create_entity(
     embedding = None
     text = embed_text or label
     if text and "Embeddable" in type_interfaces(conn, type_id):
-        embedding = get_embedder().embed(f"{type_id}: {text}")
+        # Bewusst ohne Typ-Prefix: Embeddings müssen typ-übergreifend
+        # vergleichbar sein (resolve/search auf abstrakte Typen wie Agent) —
+        # der Typ-Filter ist SQL-Job, nicht Embedding-Job.
+        embedding = get_embedder().embed(text)
     return conn.execute(
         """INSERT INTO entity (type_id, label, embedding)
            VALUES (%s, %s, %s) RETURNING id, type_id, label, merged_into, created_at""",
@@ -98,7 +101,7 @@ def refresh_entity_label(
     (z. B. alle deprecated), bleibt der bisherige Cache stehen — kein Datenverlust.
     """
     row = conn.execute(
-        """SELECT t.label_predicate FROM entity e
+        """SELECT e.type_id, t.label_predicate FROM entity e
            JOIN entity_type t ON t.id = e.type_id WHERE e.id = %s""",
         (str(entity_id),),
     ).fetchone()
@@ -118,10 +121,49 @@ def refresh_entity_label(
         (str(entity_id), label_pred),
     ).fetchone()
     if best is not None:
+        # Embedding zieht mit dem Label nach (beide ableitbar, Invariante 1) —
+        # sonst findet resolve/search umbenannte oder nachträglich benannte
+        # Entities nie. Ein embed_text-Override aus der Anlage wird dabei vom
+        # Bezeichner-Statement (SoT) abgelöst.
+        embedding = None
+        if "Embeddable" in type_interfaces(conn, row["type_id"]):
+            embedding = get_embedder().embed(best["value_text"])
         conn.execute(
-            "UPDATE entity SET label = %s WHERE id = %s",
-            (best["value_text"], str(entity_id)),
+            "UPDATE entity SET label = %s,"
+            " embedding = COALESCE(%s::vector, embedding)"
+            " WHERE id = %s",
+            (best["value_text"], embedding, str(entity_id)),
         )
+
+
+def recompute_embeddings(conn: psycopg.Connection) -> int:
+    """Alle Entity-Embeddings aus dem Label neu ableiten (Invariante 1:
+    Embeddings sind ableitbar und jederzeit neu berechenbar). Nötig nach
+    einem Wechsel des Embedding-Schemas oder für Bestandsdaten, deren Label
+    sich vor dem Embedding-Refresh in refresh_entity_label geändert hat.
+
+    Aufruf: uv run python -c "from weltmodell.db import get_conn; \\
+      from weltmodell.entities import recompute_embeddings; \\
+      c = get_conn(); print(recompute_embeddings(c)); c.commit()"
+    """
+    embedder = get_embedder()
+    embeddable = {
+        t["id"]
+        for t in conn.execute("SELECT id FROM entity_type").fetchall()
+        if "Embeddable" in type_interfaces(conn, t["id"])
+    }
+    n = 0
+    for row in conn.execute(
+        "SELECT id, label, type_id FROM entity WHERE label IS NOT NULL"
+    ).fetchall():
+        if row["type_id"] not in embeddable:
+            continue
+        conn.execute(
+            "UPDATE entity SET embedding = %s WHERE id = %s",
+            (embedder.embed(row["label"]), row["id"]),
+        )
+        n += 1
+    return n
 
 
 def fix_entity(conn: psycopg.Connection, entity_id: str, *, reason: str) -> dict:

@@ -261,8 +261,11 @@ async def welt_resolve(
 ) -> dict[str, Any]:
     """Kanonischen Anker für eine Entity-Beschreibung finden — IMMER vor dem
     Anlegen aufrufen. identifiers = {prädikat_id: wert} mit identifying-
-    Prädikaten (z. B. account_uri, email) matchen deterministisch; sonst
-    liefert label Vektor-Kandidaten. match=null ⇒ kein sicherer Treffer."""
+    Prädikaten (z. B. account_uri, email) matchen deterministisch
+    (nicht-identifying Keys werden ignoriert und in warnings gemeldet);
+    sonst liefert label Kandidaten: exakte Label-Gleichheit (similarity 1.0)
+    + Vektor-Ähnlichkeit, type_id subtypfähig (Agent findet Person).
+    match=null ⇒ kein sicherer Treffer; Teilnamen-Suche ist welt_search."""
 
     def q(conn):
         result = resolution.resolve(

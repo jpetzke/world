@@ -142,3 +142,47 @@ def test_statements_on_merged_entity_go_to_canonical(conn, source_id):
         source_ids=[source_id],
     )
     assert str(row["subject_id"]) == a
+
+
+def test_resolve_findet_nachgereichten_namen(conn, source_id):
+    # Anker ohne Label; der Name kommt später als Statement. Label-Cache UND
+    # Embedding sind ableitbar (Invariante 1) — beide müssen nachziehen.
+    person = str(create_entity(conn, type_id="Person")["id"])
+    commit_statement(
+        conn, subject_id=person, predicate_id="name",
+        value={"type": "string", "text": "Späte Namensgeberin"},
+        source_ids=[source_id],
+    )
+    res = resolve(conn, type_id="Person", label="Späte Namensgeberin")
+    assert res["candidates"], "Kandidat für nachgereichten Namen erwartet"
+    assert res["candidates"][0]["id"] == person
+    assert res["candidates"][0]["similarity"] >= 0.99
+
+
+def test_resolve_folgt_rename(conn, source_id):
+    person = str(create_entity(conn, type_id="Person", label="Alter Name Xyz")["id"])
+    commit_statement(
+        conn, subject_id=person, predicate_id="name",
+        value={"type": "string", "text": "Neuer Name Xyz"},
+        source_ids=[source_id], rank="preferred",
+    )
+    res = resolve(conn, type_id="Person", label="Neuer Name Xyz")
+    assert res["candidates"], "Kandidat für neuen Namen erwartet"
+    assert res["candidates"][0]["id"] == person
+
+
+def test_resolve_ist_subtypfaehig(conn):
+    create_entity(conn, type_id="Person", label="Subtyp Suchmann")
+    res = resolve(conn, type_id="Agent", label="Subtyp Suchmann")
+    assert res["candidates"], "Agent-Suche muss Person-Entities finden"
+    assert res["candidates"][0]["label"] == "Subtyp Suchmann"
+
+
+def test_resolve_exaktes_label_ohne_embedding(conn):
+    # Platform ist nicht Embeddable (kein Vektor) — exakte Label-Gleichheit
+    # muss trotzdem einen Kandidaten liefern (Dedup „linkedin" vs „LinkedIn").
+    create_entity(conn, type_id="Platform", label="TestNetz")
+    res = resolve(conn, type_id="Platform", label="testnetz")
+    assert res["candidates"], "Exakter Label-Match ohne Embedding erwartet"
+    assert res["candidates"][0]["label"] == "TestNetz"
+    assert res["candidates"][0]["similarity"] >= 0.99

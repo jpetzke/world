@@ -10,6 +10,7 @@ import psycopg
 from .embeddings import get_embedder
 from .entities import canonical_id, get_entity
 from .errors import NotFoundError, ValidationError
+from .registry import descendant_type_ids
 
 # Bitemporaler Filter — EINE Definition für entity_view und query_statements,
 # damit sich Zeitreise-Semantik nie zwischen den Sichten unterscheidet:
@@ -530,22 +531,6 @@ def graph_snapshot(conn: psycopg.Connection, *, max_nodes: int = 400) -> dict[st
     return {"nodes": nodes, "edges": edges, "total_nodes": total}
 
 
-def _descendant_type_ids(conn: psycopg.Connection, type_id: str) -> list[str]:
-    """Typ + alle Subtypen — damit ein Filter auf einen abstrakten Typ (z. B.
-    Agent) auch dessen konkrete Subtypen (Person, Organization) findet."""
-    return [
-        r["id"]
-        for r in conn.execute(
-            """WITH RECURSIVE down AS (
-                 SELECT id FROM entity_type WHERE id = %s
-                 UNION ALL
-                 SELECT t.id FROM entity_type t JOIN down ON t.parent_id = down.id
-               ) SELECT id FROM down""",
-            (type_id,),
-        ).fetchall()
-    ]
-
-
 def semantic_search(
     conn: psycopg.Connection,
     query: str,
@@ -557,10 +542,8 @@ def semantic_search(
 
     Der Typ-Filter ist subtyp-fähig: Filtern auf `Agent` liefert Person/Organization.
     """
-    types = _descendant_type_ids(conn, type_id) if type_id else None
-    embedding = get_embedder().embed(
-        f"{type_id}: {query}" if type_id else query
-    )
+    types = descendant_type_ids(conn, type_id) if type_id else None
+    embedding = get_embedder().embed(query)
     rows = conn.execute(
         """SELECT id, label, type_id,
                   1 - (embedding <=> %(emb)s::vector) AS similarity
