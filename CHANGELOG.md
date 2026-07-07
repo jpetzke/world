@@ -1,5 +1,48 @@
 # Changelog
 
+## Frontend-Redesign „Orbital" + Degree-of-Interest-Graph
+
+Verbindliche Spec: `weltmodell-design-system.html` (Repo-Root). Der Graph
+rendert nie mehr den ganzen Bestand, sondern ein repräsentatives Skeleton
+plus fokusgetriebene Expansion — Node-Budget konstant ~3k, egal ob die DB
+100 oder 500k Entities hält.
+
+- **Backend (Migration 0018):** `graph_metrics` als ableitbarer Cache
+  (Leiden-Community, PageRank, `community_rank`, Grad, x/y). Endpoints:
+  `GET /api/graph/skeleton` (Top-PageRank je Community + globale Hubs, mit
+  persistierten Positionen), `POST /api/graph/positions` (Layout-Persistenz),
+  `POST /api/graph/path` (BFS-Pfad Suchtreffer → geladener Ausschnitt),
+  `POST /api/graph/metrics/recompute` (admin; sonst lazy nach 24h). Neue
+  Dep: python-igraph (aarch64-Wheels vorhanden).
+- **Graph-Engine neu:** sigma.js 3 (WebGL) + graphology ersetzt Cytoscape;
+  d3-force läuft im Web Worker (Main Thread simuliert nie). Ghost-Badges
+  „+N" zeigen nicht geladene Nachbarn, Klick expandiert am Anker (Fade-in);
+  Eviction LRU×Grad (Skeleton/Selektion nie). Spec-Regeln R1–R8 portiert:
+  Label-LOD (Grad×Zoom + Kollisionsgrid), Kantenlabel-Chips horizontal nur
+  bei Fokus, Fokus-Dimming 12 % (premultiplied — sigma blendet
+  ONE/ONE_MINUS_SRC_ALPHA), Raute=Occurrent (Custom-WebGL-Program),
+  Orphan-Gravitation + Auto-Fit, 20px-Treffradius (geometrisches Picking
+  ersetzt sigmas gl.readPixels-Picking — das stallte die GPU-Pipeline).
+- **Drag-Bug behoben:** Kanten bleiben beim Ziehen sichtbar und ziehen in
+  Echtzeit mit (Ursache war Cytoscapes `hideEdgesOnViewport`; strukturell
+  erledigt, mid-drag per Screenshot verifiziert).
+- **Design-System global:** Orbital-Tokens in `theme.css` (Text-Trias AA,
+  6 Typ-Hues, Spacing/Radius/Motion, `--hit` 40/44px), drei Font-Rollen
+  (Chakra Petch/Plex Sans/Plex Mono), Buttons/Toggle-Chips/Segmented/
+  Combobox ersetzen alle nativen Selects+Checkbox-Toggles, globaler
+  Focus-Ring, `prefers-reduced-motion`.
+- **Screens nach Audit:** Inspector als kv-Rows mit echten Buttons (geteilt,
+  ≤720px Bottom-Sheet), Anlegen in 2 betitelte Gruppen (meistgenutzte Typen
+  zuerst), Create-Form zweispaltig mit Live-Preview + ⓘ-Capabilities,
+  Suche mit relativen Timestamps/Bulk-Gruppierung/klickbaren Stat-Cards,
+  Stat-Cards in Graph-Toolbars. Mobile: Bottom-Nav, scrollende Toolbars.
+- **Verifiziert** (Bench-DB 100k Nodes/299k Kanten via
+  `tests/bench/seed_graph.py`, Prod-Build, GPU): Skeleton-Load 325 ms
+  (<500), Expansion 118–183 ms (<200), 60 FPS ohne Long Tasks >50 ms bei
+  Pan/Zoom/Drag/Simulation. Touch-Audit 0 Verstöße (Desktop 40px, Mobile
+  44px) — `frontend/e2e/{touch-audit,perf,drag,shots}.mjs` (Playwright
+  braucht GPU-Flags, SwiftShader verfälscht sonst die Messung).
+
 ## Person: vorname/nachname
 
 - Neue Prädikate `vorname` (P735, givenName) und `nachname` (P734,

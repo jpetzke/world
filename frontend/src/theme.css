@@ -205,7 +205,8 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 18px;
+  min-height: var(--hit); /* R8: jedes Nav-Ziel volle Treffzone */
+  padding: 0 18px;
   color: var(--text1);
   font-size: 13px;
   border-left: 2px solid transparent;
@@ -1263,3 +1264,20 @@ button.gstat:hover:not(:disabled) { border-color: var(--cont); color: inherit; }
   animation: rise .18s ease both;
 }
 .ask-orb-answer .q { color: var(--text0); display: block; margin-bottom: 6px; }
+
+/* Touch: Chips wachsen mit — die unsichtbare ::after-Zone allein hilft
+   nicht, wenn Nachbarzeilen sie überdecken. Mehr Gap = keine Überlappung.
+   (Steht nach den Basisregeln — gleiche Spezifität, letzte gewinnt.) */
+@media (pointer: coarse) {
+  .tchip { min-height: 38px; }
+  .inline { gap: 10px; }
+}
+
+/* Links in Tabellenzellen: unsichtbare Hit-Polsterung auf ~40px (R8),
+   ohne die Zeilendichte zu ändern. */
+td a {
+  display: inline-flex;
+  align-items: center;
+  padding-block: 12px;
+  margin-block: -12px;
+}
