@@ -4,9 +4,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Kind } from '../api/types'
 import { EntityLink, ErrorBox, KindBadge } from '../components/bits'
+import { Combobox } from '../components/Combobox'
 import { useOptionNav } from '../components/useOptionNav'
 import { GraphView, type GraphViewHandle } from '../graph/GraphView'
-import { CONT, OCC } from '../graph/palette'
 import { useVocabulary } from '../hooks/useVocabulary'
 
 // DoI-Rendering: Das Skeleton (Top-PageRank je Community + Hubs) ist der
@@ -141,35 +141,36 @@ export function GraphHome() {
         </div>
 
         {(['continuant', 'occurrent'] as Kind[]).map((kind) => (
-          <label key={kind} className="chip" style={{ cursor: 'pointer', color: kind === 'continuant' ? CONT : OCC }}>
-            <input
-              type="checkbox"
-              checked={kindFilter[kind]}
-              onChange={(e) => setKindFilter({ ...kindFilter, [kind]: e.target.checked })}
-            />
-            {kind === 'continuant' ? '● Continuants' : '◆ Occurrents'}
-          </label>
+          <button
+            key={kind}
+            type="button"
+            className={`tchip${kindFilter[kind] ? ' on' : ''}${kind === 'occurrent' ? ' occ' : ''}`}
+            aria-pressed={kindFilter[kind]}
+            onClick={() => setKindFilter({ ...kindFilter, [kind]: !kindFilter[kind] })}
+          >
+            <span className={`dot${kind === 'occurrent' ? ' diamond' : ''}`} />
+            {kind === 'continuant' ? 'Continuants' : 'Occurrents'}
+          </button>
         ))}
 
-        <select
-          value={predicateFilter}
-          style={{ width: 180 }}
-          onChange={(e) => setPredicateFilter(e.target.value)}
-          aria-label="Prädikat hervorheben"
-        >
-          <option value="">Alle Prädikate</option>
-          {predicatesInGraph.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-
-        <label className="chip" style={{ cursor: 'pointer' }} title="Tiefe der Expansion bei Suche">
-          Tiefe {depth}
-          <input
-            type="range" min={1} max={3} value={depth}
-            style={{ width: 90, marginLeft: 8, cursor: 'pointer' }}
-            onChange={(e) => setDepth(Number(e.target.value))}
-            aria-label="Tiefe der Expansion"
+        <div style={{ width: 200 }}>
+          <Combobox
+            options={[{ id: '', label: 'Alle Prädikate' },
+              ...predicatesInGraph.map((p) => ({ id: p, label: p }))]}
+            value={predicateFilter}
+            onChange={setPredicateFilter}
+            placeholder="Prädikat hervorheben"
           />
-        </label>
+        </div>
+
+        <div className="seg" role="group" aria-label="Tiefe der Expansion bei Suche">
+          {[1, 2, 3].map((d) => (
+            <button key={d} type="button" className={depth === d ? 'on' : undefined}
+              onClick={() => setDepth(d)}>
+              Tiefe {d}
+            </button>
+          ))}
+        </div>
 
         <button type="button" className="ghost" onClick={() => viewRef.current?.fit()}>
           Einpassen
@@ -179,10 +180,11 @@ export function GraphHome() {
           Neu layouten
         </button>
 
-        <span className="mono small muted" style={{ marginLeft: 'auto' }}>
-          {loaded.nodes} geladen · {skeleton.data?.total_nodes ?? 0} Welt
-          {' · '}{stats.data?.statements ?? '–'} Statements
-        </span>
+        <div className="gstats">
+          <div className="gstat"><b>{loaded.nodes}</b><span>geladen</span></div>
+          <div className="gstat"><b>{skeleton.data?.total_nodes ?? 0}</b><span>Entities</span></div>
+          <div className="gstat"><b>{stats.data?.statements ?? '–'}</b><span>Statements</span></div>
+        </div>
       </div>
 
       <div className="graph-wrap" style={{ height: 'calc(100vh - 130px)' }}>

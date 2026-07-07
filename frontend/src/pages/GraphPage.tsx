@@ -86,29 +86,31 @@ export function GraphPage() {
       />
 
       <div className="graph-toolbar">
-        <label>
-          Tiefe {depth}
-          <input
-            type="range" min={1} max={3} value={depth}
-            style={{ width: 120 }}
-            onChange={(e) => setDepth(Number(e.target.value))}
-          />
-        </label>
-        {seenPredicates.map((p) => (
-          <label key={p} className="chip" style={{ cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={predicateFilter.length === 0 || predicateFilter.includes(p)}
-              onChange={(e) => {
+        <div className="seg" role="group" aria-label="Tiefe der Nachbarschaft">
+          {[1, 2, 3].map((d) => (
+            <button key={d} type="button" className={depth === d ? 'on' : undefined}
+              onClick={() => setDepth(d)}>
+              Tiefe {d}
+            </button>
+          ))}
+        </div>
+        {seenPredicates.map((p) => {
+          const on = predicateFilter.length === 0 || predicateFilter.includes(p)
+          return (
+            <button
+              key={p}
+              type="button"
+              className={`tchip${on ? ' on' : ''}`}
+              aria-pressed={on}
+              onClick={() => {
                 const base = predicateFilter.length === 0 ? seenPredicates : predicateFilter
-                setPredicateFilter(
-                  e.target.checked ? [...base, p] : base.filter((x) => x !== p),
-                )
+                setPredicateFilter(on ? base.filter((x) => x !== p) : [...base, p])
               }}
-            />
-            {p}
-          </label>
-        ))}
+            >
+              {p}
+            </button>
+          )
+        })}
         {predicateFilter.length > 0 && (
           <button type="button" className="ghost" onClick={() => setPredicateFilter([])}>
             Filter zurücksetzen
@@ -117,11 +119,13 @@ export function GraphPage() {
         <button type="button" className="ghost" onClick={() => viewRef.current?.fit()}>
           Einpassen
         </button>
-        <span className="mono small muted" style={{ marginLeft: 'auto' }}>
-          {capped
-            ? <>zeigt {walk.data!.nodes.length} von {walk.data!.total_nodes} (nächste zuerst)</>
-            : <>{walk.data?.nodes.length ?? 0} Knoten · {walk.data?.edges.length ?? 0} Kanten</>}
-        </span>
+        <div className="gstats">
+          <div className="gstat">
+            <b>{walk.data?.nodes.length ?? 0}{capped ? `/${walk.data!.total_nodes}` : ''}</b>
+            <span>{capped ? 'Knoten (nächste zuerst)' : 'Knoten'}</span>
+          </div>
+          <div className="gstat"><b>{walk.data?.edges.length ?? 0}</b><span>Kanten</span></div>
+        </div>
       </div>
 
       <div className="graph-wrap">
