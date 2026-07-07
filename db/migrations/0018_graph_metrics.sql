@@ -16,18 +16,22 @@
 -- (Entities werden zwar nie gelöscht, nur gemerged — defensiv trotzdem).
 
 CREATE TABLE IF NOT EXISTS graph_metrics (
-  entity_id  uuid PRIMARY KEY REFERENCES entity(id) ON DELETE CASCADE,
-  community  integer,
-  pagerank   real,
-  degree     integer NOT NULL DEFAULT 0,
-  x          real,
-  y          real,
-  metrics_at timestamptz,  -- letzter Community/PageRank/Grad-Recompute
-  layout_at  timestamptz   -- letzte Positions-Persistenz vom Client
+  entity_id      uuid PRIMARY KEY REFERENCES entity(id) ON DELETE CASCADE,
+  community      integer,
+  pagerank       real,
+  -- PageRank-Rang innerhalb der Community (1 = stärkster Node). Beim
+  -- Recompute vorberechnet, damit die Skeleton-Query zur Request-Zeit keine
+  -- Window-Function über den ganzen Bestand braucht (100k Zeilen ≈ 100ms).
+  community_rank integer,
+  degree         integer NOT NULL DEFAULT 0,
+  x              real,
+  y              real,
+  metrics_at     timestamptz,  -- letzter Community/PageRank/Grad-Recompute
+  layout_at      timestamptz   -- letzte Positions-Persistenz vom Client
 );
 
 -- Skeleton-Auswahl liest "Top-K PageRank pro Community" + globale Hubs.
-CREATE INDEX IF NOT EXISTS graph_metrics_community_pagerank
-  ON graph_metrics (community, pagerank DESC);
+CREATE INDEX IF NOT EXISTS graph_metrics_community_rank
+  ON graph_metrics (community_rank, pagerank DESC);
 CREATE INDEX IF NOT EXISTS graph_metrics_pagerank
   ON graph_metrics (pagerank DESC);

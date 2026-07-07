@@ -80,6 +80,16 @@ def recompute(conn: psycopg.Connection) -> dict[str, Any]:
              metrics_at = EXCLUDED.metrics_at""",
         (ids, list(communities), pagerank, degree),
     )
+    # Rang pro Community einmal beim Recompute — die Skeleton-Query zur
+    # Request-Zeit liest ihn dann nur noch über den Index.
+    conn.execute(
+        """UPDATE graph_metrics gm SET community_rank = r.rn
+           FROM (SELECT entity_id,
+                        row_number() OVER (PARTITION BY community
+                                           ORDER BY pagerank DESC) AS rn
+                 FROM graph_metrics) r
+           WHERE gm.entity_id = r.entity_id"""
+    )
     return {
         "entities": len(ids),
         "edges": len(edges),
@@ -120,33 +130,24 @@ def skeleton(
     ältere Stände als STALE_AFTER werden im Hintergrund aufgefrischt und der
     aktuelle Stand sofort serviert.
     """
-    state = conn.execute(
-        "SELECT count(*) AS n, max(metrics_at) AS at FROM graph_metrics"
-    ).fetchone()
-    have_entities = conn.execute(
-        "SELECT count(*) AS n FROM entity WHERE merged_into IS NULL"
-    ).fetchone()["n"]
+    _STATE_SQL = """
+        SELECT (SELECT count(*) FROM entity WHERE merged_into IS NULL) AS total,
+               (SELECT max(metrics_at) FROM graph_metrics) AS at"""
+    state = conn.execute(_STATE_SQL).fetchone()
     # at IS NULL deckt auch "nur Positionen, nie Metriken" ab (save_positions
     # kann vor dem ersten Recompute laufen).
-    if have_entities and state["at"] is None:
+    if state["total"] and state["at"] is None:
         with _recompute_lock:
             recompute(conn)
-        state = conn.execute(
-            "SELECT count(*) AS n, max(metrics_at) AS at FROM graph_metrics"
-        ).fetchone()
+        state = conn.execute(_STATE_SQL).fetchone()
     elif state["at"] and datetime.now(timezone.utc) - state["at"] > STALE_AFTER:
         _refresh_in_background()
 
     rows = conn.execute(
-        """WITH ranked AS (
-             SELECT entity_id, pagerank,
-                    row_number() OVER (PARTITION BY community
-                                       ORDER BY pagerank DESC) AS rn
-             FROM graph_metrics
-           ),
-           picks AS (
-             (SELECT entity_id FROM ranked WHERE rn <= %(per_comm)s
-              ORDER BY rn, pagerank DESC LIMIT %(budget)s)
+        """WITH picks AS (
+             (SELECT entity_id FROM graph_metrics
+              WHERE community_rank <= %(per_comm)s
+              ORDER BY community_rank, pagerank DESC LIMIT %(budget)s)
              UNION
              (SELECT entity_id FROM graph_metrics
               ORDER BY pagerank DESC LIMIT %(hubs)s)
@@ -171,7 +172,7 @@ def skeleton(
     return {
         "nodes": rows,
         "edges": edge_rows,
-        "total_nodes": have_entities,
+        "total_nodes": state["total"],
         "metrics_at": state["at"],
     }
 
