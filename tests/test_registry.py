@@ -412,3 +412,15 @@ def test_stats_zaehlt_interface_proposals(conn):
     registry.propose_interface(conn, interface_id="StatsZaehlIface", label="x",
                                proposed_by="test")
     assert stats(conn)["pending_proposals"] == before + 1
+
+
+def test_person_namen_praedikate_geseedet(conn):
+    # Migration 0017: vorname/nachname als Person-Attribute
+    for pid, wd in (("vorname", "P735"), ("nachname", "P734")):
+        p = registry.get_predicate(conn, pid)
+        assert p is not None, f"{pid} fehlt (Migration 0017)"
+        assert p["domain_type"] == "Person"
+        assert p["range_kind"] == "string"
+        assert p["cardinality"] == "1:1"
+        assert p["identifying"] is False
+        assert p["wikidata_pid"] == wd

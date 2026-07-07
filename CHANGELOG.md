@@ -1,5 +1,13 @@
 # Changelog
 
+## Person: vorname/nachname
+
+- Neue Prädikate `vorname` (P735, givenName) und `nachname` (P734,
+  familyName) auf Person (Migration 0017): string, 1:1, nicht identifying.
+  Mehrere Vornamen gehen ZUSAMMEN in EIN `vorname`-Statement („Hans Peter").
+  `name` bleibt der Voll-Bezeichner (label_predicate); bestehende
+  name-Statements werden nicht automatisch gesplittet (Kurations-Arbeit).
+
 ## Bug-Sweep (E2E über MCP)
 
 - **Qualifier können quantity tragen** (Wikidata-Praxis, z. B. P1114 „Anzahl"):
