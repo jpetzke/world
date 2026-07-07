@@ -1,5 +1,45 @@
 # Changelog
 
+## Bug-Sweep (E2E über MCP)
+
+- **Qualifier können quantity tragen** (Wikidata-Praxis, z. B. P1114 „Anzahl"):
+  `value_unit`-Spalte im Qualifier-Store (Migration 0016), Whitelist +
+  Supersession-Kopie erweitert.
+- **`welt_resolve` Label-Match repariert:** `refresh_entity_label` pflegte nur
+  den Label-Cache, nie das Embedding — Entities mit nachgereichtem oder
+  geändertem Namen waren per Label unauffindbar. Jetzt ziehen Label UND
+  Embedding nach (beide ableitbar, Invariante 1). Dazu: Typ-Filter subtypfähig
+  (Agent findet Person), exakte Label-Gleichheit als Kandidat auch ohne
+  Embedding (Platform-Dedup „linkedin" = „LinkedIn"), Embeddings ohne
+  Typ-Prefix (typ-übergreifend vergleichbar), nicht-identifying `identifiers`
+  werden als `warnings` gemeldet statt still ignoriert.
+  `recompute_embeddings()` (entities.py) leitet Bestands-Embeddings neu ab —
+  **nach Deploy einmal ausführen**:
+  `uv run python -c "from weltmodell.db import get_conn; from weltmodell.entities import recompute_embeddings; c = get_conn(); print(recompute_embeddings(c)); c.commit()"`
+- **Merge schließt Self-Loop-Artefakte:** kannte/folgte die Dublette dem
+  Original, blieb nach dem Merge ein selbstreferenzielles Statement
+  (d knows d) in der Current View — bewegte Zeilen mit subject = object
+  werden jetzt transaktionszeitlich geschlossen (`self_loops_closed`).
+- **Re-Confirm generalisiert:** exakt identische Behauptung (Wert +
+  Gültigkeitsfenster, keine Qualifier) wird re-bestätigt statt dupliziert —
+  ein Re-Ingest derselben Quelle erzeugte vorher bei jedem Lauf identische
+  Statement-Zeilen. Label-Cache-Tiebreak jetzt: rank → confidence →
+  Belegzahl → Neuheit.
+- **Pipeline überlebt fehlerhafte Kandidaten:** Savepoint pro Kandidat —
+  ein DB-Fehler (z. B. unparsebares LLM-Datum) landet in `rejected`, statt
+  die Transaktion und alle Folge-Kandidaten abzureißen; fehlgeformte
+  LLM-Items werden übersprungen und ausgewiesen statt zu crashen.
+- **`welt_resolve`/`welt_search` melden unbekannte Typen** statt stumm null
+  Kandidaten zu liefern (Dubletten-Falle bei Tippfehler-Typ).
+- **Fehlerqualität:** rank/origin/confidence/leere Gültigkeitsfenster werden
+  vor der DB validiert (klare ValidationError statt CheckViolation);
+  identifying-Konflikt nennt die besitzende Entity + Kurations-Hinweis statt
+  roher UniqueViolation; kaputte UUIDs/Datumsformate kommen als „Ungültige
+  Eingabe: …" zurück; `propose_*` prüft kontextfreie Shape-Regeln sofort
+  (fail fast); `welt_proposals` validiert `status`; `welt_stats` zählt auch
+  Interface-Proposals; `welt_fix_statement` zählt sich nicht mehr selbst als
+  1:1-Kardinalitätskonflikt.
+
 ## Paket 3 — Komfort
 
 - `welt_import_snapshot`: generischer Snapshot-Import für beliebige
