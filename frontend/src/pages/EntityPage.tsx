@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { SearchHit, Statement } from '../api/types'
 import { EntityAutocomplete } from '../components/EntityAutocomplete'
@@ -11,6 +11,7 @@ import { useVocabulary } from '../hooks/useVocabulary'
 
 export function EntityPage() {
   const { id = '' } = useParams()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { helpers } = useVocabulary()
 
@@ -89,9 +90,14 @@ export function EntityPage() {
           </span>
         }
         sub={
-          <span className="inline">
-            <Link to={`/graph/${entity.id}`}>Im Graph öffnen →</Link>
-            <Link to={`/create?statement_subject=${entity.id}`}>Statement hinzufügen +</Link>
+          <span className="inline" style={{ marginTop: 6 }}>
+            <button type="button" className="sm" onClick={() => navigate(`/graph/${entity.id}`)}>
+              Im Graph öffnen →
+            </button>
+            <button type="button" className="sm primary"
+              onClick={() => navigate(`/create?statement_subject=${entity.id}`)}>
+              + Statement
+            </button>
           </span>
         }
       />
@@ -104,14 +110,15 @@ export function EntityPage() {
           <Field label="Was glaubte ich am … (system_at)">
             <input type="datetime-local" value={systemAt} onChange={(e) => setSystemAt(e.target.value)} />
           </Field>
-          <label className="field" style={{ flex: '0 0 auto' }}>
-            <span>Deprecated zeigen</span>
-            <input
-              type="checkbox"
-              checked={includeDeprecated}
-              onChange={(e) => setIncludeDeprecated(e.target.checked)}
-            />
-          </label>
+          <div className="field" style={{ flex: '0 0 auto' }}>
+            <span>Deprecated</span>
+            <button type="button"
+              className={`tchip${includeDeprecated ? ' on' : ''}`}
+              aria-pressed={includeDeprecated}
+              onClick={() => setIncludeDeprecated(!includeDeprecated)}>
+              {includeDeprecated ? 'sichtbar' : 'ausgeblendet'}
+            </button>
+          </div>
           {timeTravelActive ? (
             <div style={{ flex: '0 0 auto' }}>
               <button type="button" onClick={() => { setValidAt(''); setSystemAt(''); setIncludeDeprecated(false) }}>

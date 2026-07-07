@@ -676,12 +676,71 @@ td:first-child:has(.kind), td:first-child:has(.chip) {
   z-index: 2;
 }
 .graph-side {
-  width: 280px; flex-shrink: 0;
+  width: 300px; flex-shrink: 0;
   border: none;
   border-left: 1px solid var(--edge-hair);
   box-shadow: none;
   padding: 14px;
   overflow-y: auto;
+}
+
+/* --- Inspector (Spec Tab 04): kv-Rows + echte Aktions-Buttons ----------- */
+
+.inspector-body { position: relative; }
+.inspector-close {
+  position: absolute;
+  top: 0; right: 0;
+  width: var(--hit); height: var(--hit);
+  min-height: var(--hit);
+  padding: 0;
+  color: var(--tx3);
+}
+.inspector-close:hover:not(:disabled) { color: var(--tx1); background: var(--bg2); }
+.etype {
+  font: 600 10px/1 var(--font-hud);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--tx3);
+  margin-bottom: 4px;
+}
+.inspector-title { font: 700 18px/1.25 var(--font-hud); margin: 0 28px 8px 0; }
+.inspector-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+}
+
+.kv { border: 1px solid var(--line); border-radius: var(--r2); overflow: hidden; }
+.kv .row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+  min-height: 44px;
+}
+.kv .row:last-child { border-bottom: none; }
+.kv .row:hover { background: var(--bg2); }
+.kv .k {
+  font: 500 11px var(--font-data);
+  color: var(--tx3);
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+.kv .v { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.kv .v a { border-bottom: 1px solid rgba(62, 197, 240, 0.3); }
+.kv .v a:hover { text-decoration: none; border-bottom-color: var(--cont); }
+.kv .v .qual {
+  display: inline-block;
+  margin-left: 8px;
+  font: 400 11px var(--font-data);
+  color: var(--tx3);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
 }
 .graph-toolbar { display: flex; gap: var(--s3); align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .graph-toolbar label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text1); }
@@ -724,19 +783,100 @@ button.gstat:hover:not(:disabled) { border-color: var(--cont); color: inherit; }
 .tabs button:hover:not(:disabled) { transform: none; color: var(--text0); }
 .tabs button.active { color: var(--text0); border-bottom-color: var(--continuant); }
 
+/* --- Mobile (Spec §Mobile): Bottom-Nav statt Sidebar, alles ≥44px --------- */
+
 @media (max-width: 860px) {
   .shell { flex-direction: column; }
-  .sidebar { width: 100%; flex-direction: row; align-items: center; padding: 8px 12px; }
-  .nav { margin: 0 0 0 16px; flex-direction: row; flex-wrap: wrap; }
-  .nav a { border-left: none; border-bottom: 2px solid transparent; padding: 5px 10px; }
-  .nav a.active { border-bottom-color: var(--continuant); }
-  .main { padding: 18px 14px 60px; }
+  /* Sidebar wird zur fixierten Bottom-Nav: horizontal scrollbar, jedes
+     Ziel min. --hit hoch. Wordmark und Footer treten zurück. */
+  .sidebar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    top: auto;
+    z-index: 60;
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+    border-right: none;
+    border-top: 1px solid var(--line2);
+  }
+  .wordmark { display: none; }
+  .nav {
+    margin: 0;
+    flex: 1;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 2px;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav { min-width: 0; } /* sonst overflowt die Nav über den Footer */
+  .nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--hit);
+    border-left: none;
+    border-radius: var(--r2);
+    padding: 0 12px;
+    font: 600 12px var(--font-hud);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .nav a.active { background: var(--cont-dim); color: var(--cont); }
+  .nav-footer {
+    margin: 0; padding: 0 4px 0 10px;
+    flex-direction: row; align-items: center; gap: 6px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--line);
+  }
+  .nav-footer .mono { display: none; }
+
+  /* Breite Tabellen scrollen im Panel, nie die Seite. */
+  .panel { overflow-x: auto; }
+
+  .main { padding: 14px 12px calc(76px + env(safe-area-inset-bottom)); }
   .row { flex-direction: column; align-items: stretch; }
+
+  /* Toolbar: horizontal scrollbar statt umbrechend; Suchfeld bleibt vorn. */
+  .graph-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .graph-toolbar::-webkit-scrollbar { display: none; }
+  .graph-toolbar > * { flex-shrink: 0; }
+  .gstats { margin-left: 0; }
+
   .graph-wrap { flex-direction: column; height: auto; }
-  .graph-canvas { height: 55vh; }
-  .graph-side { width: 100%; border-left: none; border-top: 1px solid var(--edge-hair); }
-  .ask-orb { right: 14px; bottom: 14px; }
+  .graph-canvas { height: calc(100vh - 250px); min-height: 320px; }
+  .ask-orb { right: 14px; bottom: calc(76px + env(safe-area-inset-bottom)); }
   .ask-orb-panel { right: 14px; left: 14px; width: auto; }
+}
+
+/* Inspector als Bottom-Sheet (Spec-Demo, max-width 720px): 60% Höhe,
+   schiebt sich über den Graph, Close-Button schließt. */
+@media (max-width: 720px) {
+  .graph-side {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    top: auto;
+    z-index: 55;
+    width: 100%;
+    height: 60%;
+    background: var(--bg1);
+    border-left: none;
+    border-top: 1px solid var(--line2);
+    border-radius: var(--r3) var(--r3) 0 0;
+    box-shadow: 0 -18px 40px -18px rgba(0, 0, 0, 0.8);
+    transform: translateY(105%);
+    transition: transform var(--dur2) var(--ease);
+  }
+  .graph-side.open { transform: none; }
 }
 
 /* --- Gesten ------------------------------------------------------------- */
@@ -822,8 +962,87 @@ button.gstat:hover:not(:disabled) { border-color: var(--cont); color: inherit; }
 .choice-card:nth-child(4) { animation-delay: .12s; }
 .choice-card:nth-child(5) { animation-delay: .16s; }
 
-.choice-title { font-size: 16px; font-weight: 600; color: var(--text0); }
+.choice-title { font: 600 15px var(--font-hud); color: var(--text0); }
 .choice-desc { font-size: 12px; color: var(--text2); }
+
+/* Gruppen (Spec-Finding „13x dieselbe Karte"): eine Beschreibung pro
+   Gruppe, kompakte Karten nur mit Glyph + Titel. */
+.choice-group { margin-bottom: var(--s5); }
+.choice-group h3 { margin: 0 0 2px; }
+.choice-group h3.continuant { color: var(--cont); }
+.choice-group h3.occurrent { color: var(--occ); }
+.choice-group-desc { margin: 0 0 var(--s3); font-size: 13px; }
+.choice-card.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--hit);
+  padding: 12px 16px;
+}
+.choice-card.compact .choice-glyph { width: 26px; height: 26px; }
+.choice-card.compact .choice-glyph::after { inset: 2px; }
+.choice-card.compact .choice-glyph.occurrent::after { inset: 4px; }
+
+/* Info-Tooltip (Capabilities): Jargon hinter ⓘ, per Hover UND Fokus. */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-top: 8px;
+  font: 500 12px var(--font-ui);
+  color: var(--tx3);
+  cursor: help;
+  border-bottom: 1px dotted var(--line2);
+}
+.info-tip .tip-body {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 280px;
+  padding: var(--s3) var(--s4);
+  background: var(--bg2);
+  border: 1px solid var(--line2);
+  border-radius: var(--r2);
+  color: var(--tx2);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur1) var(--ease);
+}
+.info-tip:hover .tip-body, .info-tip:focus-visible .tip-body { opacity: 1; }
+
+/* Wizard zweispaltig: Form links, Live-Preview rechts (Spec-Finding
+   „80% Leerraum"). Unter 900px stapelt es. */
+.wizard-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--s4);
+  align-items: start;
+}
+.wizard-preview {
+  position: sticky;
+  top: 16px;
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  padding: var(--s4);
+}
+.wizard-preview .preview-subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 10px;
+}
+.wizard-preview .preview-name { font: 700 16px var(--font-hud); color: var(--tx1); overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .wizard-cols { grid-template-columns: 1fr; }
+  .wizard-preview { position: static; order: -1; }
+}
 
 /* Große Ontologie-Embleme — dieselbe Formsprache wie die Kind-Badges */
 .choice-glyph { position: relative; flex: 0 0 auto; display: inline-block; width: 40px; height: 40px; }

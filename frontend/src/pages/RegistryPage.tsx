@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { api } from '../api/client'
 import type { EntityType } from '../api/types'
+import { Combobox } from '../components/Combobox'
 import { ErrorBox, Field, KindBadge, OkBox, PageHead } from '../components/bits'
 import { useVocabulary } from '../hooks/useVocabulary'
 
@@ -161,9 +162,11 @@ function TypeProposalForm() {
           <input value={form.type_id} placeholder="PascalCase, z. B. Influencer" onChange={(e) => setForm({ ...form, type_id: e.target.value })} />
         </Field>
         <Field label={`Parent (vererbt kind: ${parentKind})`}>
-          <select value={form.parent_id} onChange={(e) => setForm({ ...form, parent_id: e.target.value })}>
-            {vocab?.types.map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
-          </select>
+          <Combobox
+            options={(vocab?.types ?? []).map((t) => ({ id: t.id, label: t.id }))}
+            value={form.parent_id}
+            onChange={(id) => setForm({ ...form, parent_id: id })}
+          />
         </Field>
         <Field label="Label">
           <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
@@ -172,19 +175,17 @@ function TypeProposalForm() {
       <Field label="Interfaces">
         <div className="inline">
           {vocab?.interfaces.map((iface) => (
-            <label key={iface.id} className="chip" style={{ cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={form.interfaces.includes(iface.id)}
-                onChange={(e) => setForm({
+            <button key={iface.id} type="button"
+              className={`tchip${form.interfaces.includes(iface.id) ? ' on' : ''}`}
+              aria-pressed={form.interfaces.includes(iface.id)}
+              onClick={() => setForm({
                   ...form,
-                  interfaces: e.target.checked
+                  interfaces: !form.interfaces.includes(iface.id)
                     ? [...form.interfaces, iface.id]
                     : form.interfaces.filter((x) => x !== iface.id),
-                })}
-              />
+                })}>
               {iface.id}
-            </label>
+            </button>
           ))}
         </div>
       </Field>
@@ -237,46 +238,56 @@ function PredicateProposalForm() {
           <input value={form.predicate_id} placeholder="member_of" onChange={(e) => setForm({ ...form, predicate_id: e.target.value })} />
         </Field>
         <Field label="Domain-Typ">
-          <select value={form.domain_type} onChange={(e) => setForm({ ...form, domain_type: e.target.value })}>
-            <option value="">— (Interface nutzen)</option>
-            {vocab?.types.map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
-          </select>
+          <Combobox
+            options={[{ id: '', label: '— (Interface nutzen)' },
+              ...(vocab?.types ?? []).map((t) => ({ id: t.id, label: t.id }))]}
+            value={form.domain_type}
+            onChange={(id) => setForm({ ...form, domain_type: id })}
+          />
         </Field>
         <Field label="oder Domain-Interface">
-          <select value={form.domain_interface} onChange={(e) => setForm({ ...form, domain_interface: e.target.value })}>
-            <option value="">—</option>
-            {vocab?.interfaces.map((iface) => <option key={iface.id} value={iface.id}>{iface.id}</option>)}
-          </select>
+          <Combobox
+            options={[{ id: '', label: '—' },
+              ...(vocab?.interfaces ?? []).map((i) => ({ id: i.id, label: i.id }))]}
+            value={form.domain_interface}
+            onChange={(id) => setForm({ ...form, domain_interface: id })}
+          />
         </Field>
       </div>
       <div className="row">
         <Field label="Range">
-          <select value={form.range_kind} onChange={(e) => setForm({ ...form, range_kind: e.target.value })}>
-            {['entity', 'string', 'number', 'quantity', 'datetime', 'geo', 'json'].map((k) => (
-              <option key={k} value={k}>{k}</option>
-            ))}
-          </select>
+          <Combobox
+            options={['entity', 'string', 'number', 'quantity', 'datetime', 'geo', 'json']
+              .map((k) => ({ id: k, label: k }))}
+            value={form.range_kind}
+            onChange={(id) => setForm({ ...form, range_kind: id })}
+          />
         </Field>
         {form.range_kind === 'entity' && (
           <Field label="Range-Typ">
-            <select value={form.range_type} onChange={(e) => setForm({ ...form, range_type: e.target.value })}>
-              <option value="">beliebige Entity</option>
-              {vocab?.types.map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
-            </select>
+            <Combobox
+              options={[{ id: '', label: 'beliebige Entity' },
+                ...(vocab?.types ?? []).map((t) => ({ id: t.id, label: t.id }))]}
+              value={form.range_type}
+              onChange={(id) => setForm({ ...form, range_type: id })}
+            />
           </Field>
         )}
         <Field label="Kardinalität">
-          <select value={form.cardinality} onChange={(e) => setForm({ ...form, cardinality: e.target.value })}>
-            <option value="1:1">1:1</option>
-            <option value="1:n">1:n</option>
-            <option value="n:m">n:m</option>
-          </select>
+          <div className="seg" role="group" aria-label="Kardinalität">
+            {['1:1', '1:n', 'n:m'].map((c) => (
+              <button key={c} type="button" className={form.cardinality === c ? 'on' : undefined}
+                onClick={() => setForm({ ...form, cardinality: c })}>{c}</button>
+            ))}
+          </div>
         </Field>
         <Field label="Invers zu (optional)">
-          <select value={form.inverse_id} onChange={(e) => setForm({ ...form, inverse_id: e.target.value })}>
-            <option value="">—</option>
-            {vocab?.predicates.map((p) => <option key={p.id} value={p.id}>{p.id}</option>)}
-          </select>
+          <Combobox
+            options={[{ id: '', label: '—' },
+              ...(vocab?.predicates ?? []).map((pr) => ({ id: pr.id, label: pr.id }))]}
+            value={form.inverse_id}
+            onChange={(id) => setForm({ ...form, inverse_id: id })}
+          />
         </Field>
       </div>
       <Field label="Begründung">

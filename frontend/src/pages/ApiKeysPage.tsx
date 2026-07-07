@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api/client'
+import { Combobox } from '../components/Combobox'
 import type { ApiKey, ApiKeyScope } from '../api/types'
 import { Empty, ErrorBox, Field, Loading, PageHead, fmtDate } from '../components/bits'
 
@@ -105,11 +106,11 @@ function CreateKeyForm({ onCreated }: { onCreated: () => void }) {
           />
         </Field>
         <Field label="Scope">
-          <select value={scope} onChange={(e) => setScope(e.target.value as ApiKeyScope)}>
-            {(Object.keys(SCOPE_LABEL) as ApiKeyScope[]).map((s) => (
-              <option key={s} value={s}>{SCOPE_LABEL[s]}</option>
-            ))}
-          </select>
+          <Combobox
+            options={(Object.keys(SCOPE_LABEL) as ApiKeyScope[]).map((s) => ({ id: s, label: SCOPE_LABEL[s] }))}
+            value={scope}
+            onChange={(id) => setScope(id as ApiKeyScope)}
+          />
         </Field>
         <button type="submit" disabled={create.isPending || !name.trim()}>
           Key anlegen

@@ -3,8 +3,9 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Kind } from '../api/types'
-import { EntityLink, ErrorBox, KindBadge } from '../components/bits'
+import { ErrorBox } from '../components/bits'
 import { Combobox } from '../components/Combobox'
+import { Inspector } from '../components/Inspector'
 import { useOptionNav } from '../components/useOptionNav'
 import { GraphView, type GraphViewHandle } from '../graph/GraphView'
 import { useVocabulary } from '../hooks/useVocabulary'
@@ -40,11 +41,6 @@ export function GraphHome() {
     queryFn: () => api.skeleton(SKELETON_BUDGET),
   })
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
-  const selectedView = useQuery({
-    queryKey: ['entity', selected, 'panel'],
-    queryFn: () => api.entity(selected!),
-    enabled: !!selected,
-  })
 
   // Konvergierte Positionen persistieren (R4) — gesammelt, nicht pro Tick.
   const savePositions = useMutation({ mutationFn: api.savePositions })
@@ -207,7 +203,7 @@ export function GraphHome() {
         ) : (
           <div className="graph-canvas" />
         )}
-        <aside className="graph-side">
+        <aside className={`graph-side${selected ? ' open' : ''}`}>
           {!selected && (
             <div className="stack">
               <p className="muted small" style={{ margin: 0 }}>
@@ -228,31 +224,12 @@ export function GraphHome() {
               )}
             </div>
           )}
-          {selected && selectedView.data && (
-            <div className="stack">
-              <div>
-                <div className="eyebrow">{selectedView.data.entity.type_id}</div>
-                <h2 style={{ marginBottom: 4 }}>
-                  <EntityLink id={selectedView.data.entity.id} label={selectedView.data.entity.label} />
-                </h2>
-                <div className="inline">
-                  <KindBadge
-                    kind={helpers?.kindOf(selectedView.data.entity.type_id)}
-                    typeId={selectedView.data.entity.type_id}
-                  />
-                  <Link to={`/graph/${selected}`} className="small">Traverse →</Link>
-                  <Link to={`/create?statement_subject=${selected}`} className="small">+ Statement</Link>
-                </div>
-              </div>
-              {selectedView.data.statements.slice(0, 14).map((s) => (
-                <div key={s.id} className="small">
-                  <span className="predicate">{s.predicate_id}</span>{' '}
-                  {s.value_type === 'entity'
-                    ? <EntityLink id={s.object_id!} label={s.object_label} />
-                    : <span>{s.value_text ?? s.value_number ?? ''}{s.value_unit ? ` ${s.value_unit}` : ''}</span>}
-                </div>
-              ))}
-            </div>
+          {selected && (
+            <Inspector
+              entityId={selected}
+              degree={viewRef.current?.dbDegree(selected)}
+              onClose={() => setSelected(null)}
+            />
           )}
         </aside>
       </div>

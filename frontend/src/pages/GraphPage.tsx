@@ -2,7 +2,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
-import { EntityLink, ErrorBox, KindBadge, PageHead } from '../components/bits'
+import { ErrorBox, KindBadge, PageHead } from '../components/bits'
+import { Inspector } from '../components/Inspector'
 import { GraphView, type GraphViewHandle } from '../graph/GraphView'
 import { CONT, OCC } from '../graph/palette'
 import { useVocabulary } from '../hooks/useVocabulary'
@@ -28,11 +29,6 @@ export function GraphPage() {
       predicates: predicateFilter.length ? predicateFilter : null,
     }),
     enabled: !!id,
-  })
-  const selectedView = useQuery({
-    queryKey: ['entity', selected, 'panel'],
-    queryFn: () => api.entity(selected!),
-    enabled: !!selected,
   })
 
   const savePositions = useMutation({ mutationFn: api.savePositions })
@@ -143,33 +139,19 @@ export function GraphPage() {
         ) : (
           <div className="graph-canvas" />
         )}
-        <aside className="graph-side">
+        <aside className={`graph-side${selected ? ' open' : ''}`}>
           {!selected && (
             <p className="muted small">
               {walk.data?.nodes.length ?? 0} Entities in ≤{depth} Hops (ungerichtet).
               Knoten anklicken für Details.
             </p>
           )}
-          {selected && selectedView.data && (
-            <div className="stack">
-              <div>
-                <div className="eyebrow">{selectedView.data.entity.type_id}</div>
-                <h2 style={{ marginBottom: 4 }}>
-                  <EntityLink id={selectedView.data.entity.id} label={selectedView.data.entity.label} />
-                </h2>
-                <button type="button" className="ghost" onClick={() => navigate(`/graph/${selected}`)}>
-                  Als Startpunkt →
-                </button>
-              </div>
-              {selectedView.data.statements.slice(0, 12).map((s) => (
-                <div key={s.id} className="small">
-                  <span className="predicate">{s.predicate_id}</span>{' '}
-                  {s.value_type === 'entity'
-                    ? <EntityLink id={s.object_id!} label={s.object_label} />
-                    : <span>{s.value_text ?? s.value_number ?? ''}{s.value_unit ? ` ${s.value_unit}` : ''}</span>}
-                </div>
-              ))}
-            </div>
+          {selected && (
+            <Inspector
+              entityId={selected}
+              degree={viewRef.current?.dbDegree(selected)}
+              onClose={() => setSelected(null)}
+            />
           )}
         </aside>
       </div>

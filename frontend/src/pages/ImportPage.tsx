@@ -119,10 +119,18 @@ export function ImportPage() {
           />
         </Field>
         <Field label="Richtung">
-          <select value={direction} onChange={(e) => setDirection(e.target.value as typeof direction)}>
-            <option value="followers">Follower-Liste (diese Accounts folgen dem Account)</option>
-            <option value="following">Following-Liste (der Account folgt diesen Accounts)</option>
-          </select>
+          <div className="seg" role="group" aria-label="Richtung der Liste">
+            {([
+              ['followers', 'Follower-Liste'],
+              ['following', 'Following-Liste'],
+            ] as const).map(([id, label]) => (
+              <button key={id} type="button" className={direction === id ? 'on' : undefined}
+                title={id === 'followers'
+                  ? 'Diese Accounts folgen dem Account'
+                  : 'Der Account folgt diesen Accounts'}
+                onClick={() => setDirection(id)}>{label}</button>
+            ))}
+          </div>
         </Field>
         <Field label="Beobachtet am (valid_from der Beziehungen)">
           <input

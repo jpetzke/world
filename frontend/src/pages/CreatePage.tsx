@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ApiError, api } from '../api/client'
@@ -109,28 +109,49 @@ function SelectionGrid({ onPickType, onPickStatement }: {
   onPickStatement: () => void
 }) {
   const { vocab } = useVocabulary()
-  const types = useMemo(
-    () => (vocab?.types ?? []).filter((t) => !t.abstract).slice().sort(
-      (a, b) => (a.kind === b.kind ? 0 : a.kind === 'continuant' ? -1 : 1)
+  const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
+  // Zwei betitelte Gruppen mit je EINER Beschreibung statt 13 identischer
+  // Karten; innerhalb der Gruppe die meistgenutzten Typen zuerst.
+  const groups = useMemo(() => {
+    const usage = new Map((stats.data?.by_type ?? []).map((t) => [t.type_id, t.n]))
+    const types = (vocab?.types ?? []).filter((t) => !t.abstract).slice().sort(
+      (a, b) => (usage.get(b.id) ?? 0) - (usage.get(a.id) ?? 0)
         || (a.label ?? a.id).localeCompare(b.label ?? b.id),
-    ),
-    [vocab],
-  )
+    )
+    return [
+      {
+        kind: 'continuant' as Kind,
+        title: 'Continuants',
+        desc: 'Dinge — bestehen durch die Zeit, haben Identität und sammeln Statements.',
+        types: types.filter((t) => t.kind === 'continuant'),
+      },
+      {
+        kind: 'occurrent' as Kind,
+        title: 'Occurrents',
+        desc: 'Ereignisse — passieren in einem Zeitfenster, mit Teilnehmern in Rollen.',
+        types: types.filter((t) => t.kind === 'occurrent'),
+      },
+    ]
+  }, [vocab, stats.data])
 
   return (
     <>
       <div className="choice-eyebrow">Was möchtest du anlegen?</div>
-      <div className="choice-grid">
-        {types.map((t) => (
-          <button type="button" key={t.id} className={`choice-card ${t.kind}`} onClick={() => onPickType(t.id)}>
-            <span className={`choice-glyph ${t.kind}`} aria-hidden />
-            <span className="choice-title">{t.label ?? t.id}</span>
-            <span className="choice-desc">
-              {t.kind === 'occurrent' ? 'Ereignis — passiert in der Zeit' : 'Ding — besteht durch die Zeit'}
-            </span>
-          </button>
-        ))}
-      </div>
+      {groups.map((g) => (
+        <section key={g.kind} className="choice-group">
+          <h3 className={g.kind}>{g.title}</h3>
+          <p className="sub choice-group-desc">{g.desc}</p>
+          <div className="choice-grid">
+            {g.types.map((t) => (
+              <button type="button" key={t.id} className={`choice-card compact ${t.kind}`}
+                onClick={() => onPickType(t.id)}>
+                <span className={`choice-glyph ${t.kind}`} aria-hidden />
+                <span className="choice-title">{t.label ?? t.id}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
 
       <div className="choice-sep"><span>oder</span></div>
 
@@ -252,10 +273,13 @@ function EntityWizard({ typeId, onBack }: { typeId: string; onBack: () => void }
           <h1>{typeLabel}</h1>
           <p className="wizard-desc">{kindText(kind)}</p>
           {interfaces.length > 0 && (
-            <div className="inline" style={{ marginTop: 8 }}>
-              <span className="field-label" style={{ margin: 0 }}>Fähigkeiten</span>
-              {interfaces.map((i) => <span key={i} className="chip">{i}</span>)}
-            </div>
+            <span className="info-tip" tabIndex={0} aria-label={`Fähigkeiten: ${interfaces.join(', ')}`}>
+              ⓘ Fähigkeiten
+              <span className="tip-body" role="tooltip">
+                Dieser Typ implementiert: {interfaces.join(' · ')}. Interfaces
+                bündeln Prädikate, die mehrere Typen teilen (z. B. Nameable → name).
+              </span>
+            </span>
           )}
         </div>
       </div>
@@ -298,18 +322,31 @@ function EntityWizard({ typeId, onBack }: { typeId: string; onBack: () => void }
         )}
       </div>
 
-      {kind === 'occurrent' && (
-        <OccurrentFields typeId={typeId} exclude={labelPred?.id} onChange={setOccFacts} />
-      )}
-      <FactComposer subjectTypeId={typeId} facts={facts} onChange={setFacts} exclude={labelPred?.id} />
-      <SourceBar draft={source} onChange={setSource} />
+      <div className="wizard-cols">
+        <div className="wizard-form">
+          {kind === 'occurrent' && (
+            <OccurrentFields typeId={typeId} exclude={labelPred?.id} onChange={setOccFacts} />
+          )}
+          <FactComposer subjectTypeId={typeId} facts={facts} onChange={setFacts} exclude={labelPred?.id} />
+          <SourceBar draft={source} onChange={setSource} />
 
-      <ErrorBox error={create.error} />
-      <button type="submit" className="primary big" disabled={!primary.trim() || create.isPending}>
-        {occFacts.length + facts.length > 0
-          ? `Anlegen · ${occFacts.length + facts.length} Fakt${occFacts.length + facts.length === 1 ? '' : 'en'}`
-          : 'Anlegen'}
-      </button>
+          <ErrorBox error={create.error} />
+          <button type="submit" className="primary big" disabled={!primary.trim() || create.isPending}>
+            {occFacts.length + facts.length > 0
+              ? `Anlegen · ${occFacts.length + facts.length} Fakt${occFacts.length + facts.length === 1 ? '' : 'en'}`
+              : 'Anlegen'}
+          </button>
+        </div>
+        <StatementPreview
+          subject={primary.trim() || null}
+          typeId={typeId}
+          rows={[
+            ...(labelPred && primary.trim() ? [{ k: labelPred.id, v: primary.trim() }] : []),
+            ...occFacts.map((f) => ({ k: f.predicate_id, v: f.display })),
+            ...facts.map((f) => ({ k: f.predicate_id, v: f.display })),
+          ]}
+        />
+      </div>
     </form>
   )
 }
@@ -401,16 +438,56 @@ function StatementWizard({ presetSubjectId, onBack }: { presetSubjectId: string 
       </div>
 
       {subject && (
-        <>
-          <FactComposer subjectTypeId={subject.type_id} facts={facts} onChange={setFacts} />
-          {facts.length > 0 && <SourceBar draft={source} onChange={setSource} />}
-          <ErrorBox error={write.error} />
-          <button type="submit" className="primary big" disabled={facts.length === 0 || write.isPending}>
-            {facts.length > 0 ? `Schreiben · ${facts.length} Fakt${facts.length === 1 ? '' : 'en'}` : 'Fakt hinzufügen'}
-          </button>
-        </>
+        <div className="wizard-cols">
+          <div className="wizard-form">
+            <FactComposer subjectTypeId={subject.type_id} facts={facts} onChange={setFacts} />
+            {facts.length > 0 && <SourceBar draft={source} onChange={setSource} />}
+            <ErrorBox error={write.error} />
+            <button type="submit" className="primary big" disabled={facts.length === 0 || write.isPending}>
+              {facts.length > 0 ? `Schreiben · ${facts.length} Fakt${facts.length === 1 ? '' : 'en'}` : 'Fakt hinzufügen'}
+            </button>
+          </div>
+          <StatementPreview
+            subject={subject.label ?? subject.id.slice(0, 8)}
+            typeId={subject.type_id}
+            rows={facts.map((f) => ({ k: f.predicate_id, v: f.display }))}
+          />
+        </div>
       )}
     </form>
+  )
+}
+
+// --- Live-Preview: das entstehende Statement, während man tippt --------------
+
+function StatementPreview({ subject, typeId, rows }: {
+  subject: string | null
+  typeId?: string
+  rows: { k: string; v: string }[]
+}) {
+  return (
+    <aside className="wizard-preview" aria-live="polite">
+      <div className="eyebrow">Live-Preview</div>
+      <div className="preview-subject">
+        <span className="preview-name">{subject ?? '—'}</span>
+        {typeId && <span className="chip">{typeId}</span>}
+      </div>
+      {rows.length === 0 ? (
+        <p className="muted small">
+          Noch keine Fakten — was du unten hinzufügst, erscheint hier als
+          Statement (Subjekt → Prädikat → Wert).
+        </p>
+      ) : (
+        <div className="kv">
+          {rows.map((r, i) => (
+            <div key={i} className="row">
+              <span className="k">{r.k}</span>
+              <span className="v">{r.v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </aside>
   )
 }
 
@@ -513,10 +590,12 @@ function FactComposer({ subjectTypeId, facts, onChange, exclude }: {
               <div className="fact-more">
                 <div className="row">
                   <Field label="Rank">
-                    <select value={rank} onChange={(e) => setRank(e.target.value)}>
-                      <option value="normal">normal</option>
-                      <option value="preferred">preferred</option>
-                    </select>
+                    <div className="seg" role="group" aria-label="Rank">
+                      {['normal', 'preferred'].map((r) => (
+                        <button key={r} type="button" className={rank === r ? 'on' : undefined}
+                          onClick={() => setRank(r)}>{r}</button>
+                      ))}
+                    </div>
                   </Field>
                   <Field label={`Konfidenz — ${confidence.toFixed(2)}`}>
                     <input type="range" min={0} max={1} step={0.05} value={confidence}

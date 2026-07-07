@@ -92,3 +92,18 @@ export function fmtDate(value: string | null | undefined): string {
     dateStyle: 'medium', timeStyle: 'short',
   })
 }
+
+/** Relative Zeit („vor 8 Std.") — absolute Timestamps sind in Listen Rauschen;
+    der exakte Zeitpunkt bleibt als title erreichbar. */
+export function fmtRelative(value: string | null | undefined): string {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  const s = Math.round((Date.now() - d.getTime()) / 1000)
+  if (s < 45) return 'gerade eben'
+  const rtf = new Intl.RelativeTimeFormat('de', { numeric: 'auto' })
+  if (s < 3600) return rtf.format(-Math.round(s / 60), 'minute')
+  if (s < 86400) return rtf.format(-Math.round(s / 3600), 'hour')
+  if (s < 30 * 86400) return rtf.format(-Math.round(s / 86400), 'day')
+  return fmtDate(value)
+}

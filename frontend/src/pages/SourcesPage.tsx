@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { Combobox } from '../components/Combobox'
 import type { PipelineReport } from '../api/types'
 import { Empty, EntityLink, ErrorBox, Field, Loading, OkBox, PageHead, fmtDate } from '../components/bits'
 
@@ -192,10 +193,14 @@ function IngestPanel() {
           <input value={url} onChange={(e) => setUrl(e.target.value)} />
         </Field>
         <Field label="Extraktor">
-          <select value={extractor} onChange={(e) => setExtractor(e.target.value)}>
-            <option value="rule-based">rule-based (strukturierte Profile)</option>
-            <option value="llm">llm (OpenRouter, freier Text)</option>
-          </select>
+          <Combobox
+            options={[
+              { id: 'rule-based', label: 'rule-based (strukturierte Profile)' },
+              { id: 'llm', label: 'llm (OpenRouter, freier Text)' },
+            ]}
+            value={extractor}
+            onChange={setExtractor}
+          />
         </Field>
         <div style={{ flex: '0 0 auto' }}>
           <button type="submit" className="primary" disabled={ingest.isPending}>

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api/client'
 import { Field } from './bits'
+import { Combobox } from './Combobox'
 
 export interface SourceDraft {
   mode: 'existing' | 'new'
@@ -71,17 +72,15 @@ export function SourcePicker({ draft, onChange }: {
 
       {draft.mode === 'existing' ? (
         <Field label="Quelle">
-          <select
+          <Combobox
+            options={[{ id: '', label: '— wählen —' },
+              ...(data?.items ?? []).map((s) => ({
+                id: s.id,
+                label: (s.activity ?? 'unbekannt') + (s.url ? ` · ${s.url}` : ''),
+              }))]}
             value={draft.sourceId ?? ''}
-            onChange={(e) => onChange({ ...draft, sourceId: e.target.value || null })}
-          >
-            <option value="">— wählen —</option>
-            {data?.items.map((s) => (
-              <option key={s.id} value={s.id}>
-                {(s.activity ?? 'unbekannt') + (s.url ? ` · ${s.url}` : '')}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => onChange({ ...draft, sourceId: id || null })}
+          />
         </Field>
       ) : (
         <div className="row">

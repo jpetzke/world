@@ -248,6 +248,12 @@ export class GraphEngine {
       ?? this.computeGhosts(id)
   }
 
+  /** Voller DB-Grad (Statements), wie vom Server geliefert. */
+  dbDegree(id: string): number | undefined {
+    if (!this.graph.hasNode(id)) return undefined
+    return this.graph.getNodeAttribute(id, 'dbDegree') as number
+  }
+
   /** Ghost-Zähler cachen — pro Frame 800× graph.degree() ist zu teuer.
       Neu berechnen bei jeder Topologie-Änderung (add/drop). */
   private computeGhosts(id: string): number {

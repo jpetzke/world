@@ -18,6 +18,7 @@ export interface GraphViewHandle {
   /** Aktuell geladene Node-IDs (Ziel-Menge für Pfad-zum-Skeleton). */
   loadedIds: () => string[]
   ghostCount: (id: string) => number
+  dbDegree: (id: string) => number | undefined
 }
 
 interface Props {
@@ -90,6 +91,7 @@ export const GraphView = forwardRef<GraphViewHandle, Props>(function GraphView(
     addSubgraph: (n, e, anchor) => engineRef.current?.addSubgraph(n, e, anchor),
     loadedIds: () => engineRef.current?.loadedIds() ?? [],
     ghostCount: (id) => engineRef.current?.ghostCount(id) ?? 0,
+    dbDegree: (id) => engineRef.current?.dbDegree(id),
   }), [])
 
   return <div ref={containerRef} className="graph-canvas graph-stage" />
