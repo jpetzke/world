@@ -1,64 +1,99 @@
-/* Weltmodell — „Kosmograph" (Evolution des Nachtarchivs)
-   Designsystem: siehe Designphilosophie-Artefakt. Die fünf Leitsätze:
-   §1 Der Grund ist Raum, nicht Fläche (Void + Verläufe + Sternfeld).
-   §2 Licht ist Information (Glow nur an Daten: Konfidenz, Aktivität, Fokus).
-   §3 Farbe gehört der Ontologie (cyan=Continuant, amber=Occurrent,
-      violett=inferred; grün/gelb/rot = reine Semantik; Chrome bleibt unbunt).
-   §4 Glas schwebt über der Tiefe (blur+saturate, 1px-Lichtkante, Hairline).
-   §5 Bewegung folgt Physik (Trägheit, Hover-Antwort überall, reduced-motion aus).
-   Signature bleibt: die Konfidenz-Kante links an jeder Statement-Zeile. */
+/* Weltmodell — Design System v1 „Orbital" (verbindliche Spec:
+   weltmodell-design-system.html im Repo-Root).
+   Die Ontologie ist das Farbsystem: Cyan = Continuant, Amber = Occurrent,
+   Typ-Hues differenzieren innerhalb der Continuants. Drei Font-Rollen ohne
+   Ausnahme: Chakra Petch (HUD/Headings/Buttons), IBM Plex Sans (UI-Text),
+   IBM Plex Mono (nur Prädikate, IDs, Werte, Timestamps). Text-Trias ist
+   WCAG-AA auf bg1. Jedes interaktive Element min. var(--hit). */
 
 :root {
-  /* Raum */
-  --void: #04060c;
-  --depth: #0a0f1c;
-  --glass-a: rgba(30, 41, 68, 0.40);
-  --glass-b: rgba(13, 18, 32, 0.34);
-  --glass-input: rgba(7, 11, 20, 0.55);
-  --edge-hair: rgba(140, 175, 255, 0.13);
-  --edge-hover: rgba(150, 185, 255, 0.26);
-  --rim: inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --rim-bright: inset 0 1px 0 rgba(255, 255, 255, 0.11);
+  /* Fläche */
+  --bg0: #070B12;
+  --bg1: #0C121D;
+  --bg2: #121A2A;
+  --bg3: #182338;
+  --line: #1E2A42;
+  --line2: #2D3D60;
 
-  /* Text */
-  --text0: #ecf0fa;
-  --text1: #98a2ba;
-  --text2: #5d6780;
+  /* Text: AA-konform auf bg1 (13.8:1 / 7.5:1 / 4.6:1 — tx3 nur Meta ≥12px) */
+  --tx1: #EAF0FA;
+  --tx2: #A6B2C8;
+  --tx3: #76839C;
 
-  /* Ontologie — Farbe ist Bedeutung, nie Dekor */
-  --continuant: #56b8ff;
-  --continuant-2: #7f7dff;
-  --continuant-dim: rgba(86, 184, 255, 0.32);
-  --occurrent: #ffa044;
-  --occurrent-2: #ff6d3d;
-  --occurrent-dim: rgba(255, 160, 68, 0.32);
+  /* Semantik: Continuant / Occurrent = Kern-Ontologie */
+  --cont: #3EC5F0;
+  --cont-dim: rgba(62, 197, 240, .16);
+  --occ: #FFB454;
+  --occ-dim: rgba(255, 180, 84, .14);
+
+  /* Typ-Hues für Nodes */
+  --t-person: #3EC5F0;
+  --t-org: #8B8FF8;
+  --t-ort: #4ADE80;
+  --t-wp: #5E7CE2;
+  --t-platform: #C778DD;
+  --t-projekt: #2DD4BF;
+
+  /* Status */
+  --ok: #4ADE80;
+  --warn: #FFB454;
+  --err: #FF6B6B;
+
+  /* Interaktion */
+  --focus: 0 0 0 2px var(--bg0), 0 0 0 4px var(--cont);
+  --r1: 6px;
+  --r2: 10px;
+  --r3: 14px;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-hud: 'Chakra Petch', sans-serif;
+  --font-data: 'IBM Plex Mono', monospace;
+  --dur1: 120ms;
+  --dur2: 220ms;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --hit: 40px; /* min. Touch-Target Desktop, 44px mobil */
+
+  /* --- Legacy-Aliase (Kosmograph → Orbital), bis alle Regeln migriert sind.
+     Gleiche Bedeutung, Orbital-Werte — keine zweite Wahrheit. */
+  --void: var(--bg0);
+  --depth: var(--bg1);
+  --glass-a: var(--bg2);
+  --glass-b: var(--bg1);
+  --glass-input: var(--bg1);
+  --edge-hair: var(--line);
+  --edge-hover: var(--line2);
+  --rim: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --rim-bright: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  --text0: var(--tx1);
+  --text1: var(--tx2);
+  --text2: var(--tx3);
+  --continuant: var(--cont);
+  --continuant-2: var(--t-org);
+  --continuant-dim: rgba(62, 197, 240, .32);
+  --occurrent: var(--occ);
+  --occurrent-2: #ff8b3d;
+  --occurrent-dim: rgba(255, 180, 84, .32);
   --inferred: #a78bfa;
-
-  /* Semantik */
-  --affirm: #6fd6a0;
-  --warn: #ffd166;
-  --danger: #ff6b5e;
-
-  /* Licht — nur an Daten vergeben (§2) */
-  --glow-c: 0 0 18px rgba(86, 184, 255, 0.35);
-  --glow-o: 0 0 18px rgba(255, 160, 68, 0.35);
-
-  /* Geometrie */
-  --r-card: 16px;
-  --r-ctl: 10px;
+  --affirm: var(--ok);
+  --danger: var(--err);
+  --glow-c: 0 0 18px rgba(62, 197, 240, 0.35);
+  --glow-o: 0 0 18px rgba(255, 180, 84, 0.35);
+  --r-card: var(--r3);
+  --r-ctl: var(--r2);
   --r-pill: 999px;
+  --mono: var(--font-data);
+  --sans: var(--font-ui);
+  --line-strong: var(--line2);
+}
 
-  /* Schrift */
-  --mono: 'IBM Plex Mono', ui-monospace, monospace;
-  --sans: 'IBM Plex Sans', system-ui, sans-serif;
-
-  /* Legacy-Aliase (Nachtarchiv) — gleiche Bedeutung, neue Werte */
-  --bg0: var(--void);
-  --bg1: rgba(13, 18, 32, 0.55);
-  --bg2: rgba(26, 35, 58, 0.55);
-  --bg3: rgba(34, 46, 76, 0.6);
-  --line: var(--edge-hair);
-  --line-strong: var(--edge-hover);
+@media (pointer: coarse) {
+  :root { --hit: 44px; }
 }
 
 * { box-sizing: border-box; }
@@ -553,6 +588,16 @@ td:first-child:has(.kind), td:first-child:has(.chip) {
   flex: 1;
   min-width: 0;
   background: radial-gradient(120% 100% at 50% 40%, #0a0f1e 0%, var(--void) 75%);
+}
+/* GraphEngine: sigma-Container braucht eine Positionsbasis fürs Overlay. */
+.graph-stage { position: relative; }
+/* Ghost-Badges + Kanten-Chips + Ringe — Klicks laufen über die Engine
+   (Badge-Hit-Test vor Node-Pick), das Canvas selbst fängt keine Events. */
+.graph-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
 }
 .graph-side {
   width: 280px; flex-shrink: 0;

@@ -1,17 +1,19 @@
-import { useQuery } from '@tanstack/react-query'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import { EntityLink, ErrorBox, KindBadge, PageHead } from '../components/bits'
-import { GraphCanvas, type GraphCanvasHandle } from '../graph/GraphCanvas'
-import { NODE_COLORS } from '../graph/style'
+import { GraphView, type GraphViewHandle } from '../graph/GraphView'
+import { CONT, OCC } from '../graph/palette'
 import { useVocabulary } from '../hooks/useVocabulary'
+
+const EXPAND_MAX = 150
 
 export function GraphPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { helpers } = useVocabulary()
-  const canvasRef = useRef<GraphCanvasHandle>(null)
+  const viewRef = useRef<GraphViewHandle>(null)
 
   const [depth, setDepth] = useState(1)
   const [predicateFilter, setPredicateFilter] = useState<string[]>([])
@@ -33,14 +35,37 @@ export function GraphPage() {
     enabled: !!selected,
   })
 
-  // Prädikate im aktuellen Teilgraph (für den Filter).
+  const savePositions = useMutation({ mutationFn: api.savePositions })
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onSettled = useCallback((positions: { id: string; x: number; y: number }[]) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      if (positions.length) savePositions.mutate(positions.slice(0, 5000))
+    }, 1500)
+  }, [savePositions])
+
+  const expanding = useRef(new Set<string>())
+  const expand = useCallback(async (nid: string) => {
+    if (expanding.current.has(nid)) return
+    expanding.current.add(nid)
+    try {
+      const data = await api.traverse({ start_id: nid, max_depth: 1, max_nodes: EXPAND_MAX })
+      viewRef.current?.addSubgraph(data.nodes, data.edges, data.start_id)
+    } finally {
+      expanding.current.delete(nid)
+    }
+  }, [])
+
+  // Startknoten der Ego-Sicht markieren, sobald der Teilgraph steht.
+  useEffect(() => {
+    if (walk.data) viewRef.current?.focusOn(walk.data.start_id)
+  }, [walk.data])
+
   const seenPredicates = useMemo(
     () => [...new Set((walk.data?.edges ?? []).map((e) => e.predicate_id))].sort(),
     [walk.data],
   )
   const kindOf = useCallback((t: string) => helpers?.kindOf(t), [helpers])
-
-  const startId = walk.data?.start_id ?? id
   const capped = walk.data && walk.data.total_nodes > walk.data.nodes.length
 
   if (start.error) return <ErrorBox error={start.error} />
@@ -57,7 +82,7 @@ export function GraphPage() {
             )}
           </span>
         }
-        sub={<>Hover: Nachbarschaft · Klick: Details · Doppelklick: Entity-Seite · <span style={{ color: NODE_COLORS.continuant }}>● Continuant</span> <span style={{ color: NODE_COLORS.occurrent }}>◆ Occurrent</span></>}
+        sub={<>Klick: Details + Nachladen · Doppelklick: Entity-Seite · <span style={{ color: CONT }}>● Continuant</span> <span style={{ color: OCC }}>◆ Occurrent</span></>}
       />
 
       <div className="graph-toolbar">
@@ -89,7 +114,7 @@ export function GraphPage() {
             Filter zurücksetzen
           </button>
         )}
-        <button type="button" className="ghost" onClick={() => canvasRef.current?.fit()}>
+        <button type="button" className="ghost" onClick={() => viewRef.current?.fit()}>
           Einpassen
         </button>
         <span className="mono small muted" style={{ marginLeft: 'auto' }}>
@@ -101,14 +126,15 @@ export function GraphPage() {
 
       <div className="graph-wrap">
         {walk.data && helpers ? (
-          <GraphCanvas
-            ref={canvasRef}
+          <GraphView
+            ref={viewRef}
             nodes={walk.data.nodes}
             edges={walk.data.edges}
             kindOf={kindOf}
-            startId={startId}
             onSelect={setSelected}
             onOpen={(nid) => navigate(`/entity/${nid}`)}
+            onExpand={(nid) => { void expand(nid) }}
+            onSettled={onSettled}
           />
         ) : (
           <div className="graph-canvas" />

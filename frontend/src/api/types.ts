@@ -134,6 +134,28 @@ export interface GraphNodeDTO {
   degree: number
   /** Hop-Distanz vom Startknoten (nur in der Ego-Sicht gesetzt). */
   depth?: number
+  /** Persistierte Layout-Position (Skeleton/Pfad; null = nie gespeichert). */
+  x?: number | null
+  y?: number | null
+}
+
+/** Skeleton-Node: DoI-Auswahl mit vorberechneten Metriken (Migration 0018). */
+export interface SkeletonNodeDTO extends GraphNodeDTO {
+  community: number | null
+  pagerank: number | null
+}
+
+export interface Skeleton {
+  nodes: SkeletonNodeDTO[]
+  edges: GraphEdgeDTO[]
+  total_nodes: number
+  metrics_at: string | null
+}
+
+export interface GraphPath {
+  found: boolean
+  nodes: GraphNodeDTO[]
+  edges: GraphEdgeDTO[]
 }
 
 export interface GraphEdgeDTO {

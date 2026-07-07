@@ -1,31 +1,31 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Kind } from '../api/types'
 import { EntityLink, ErrorBox, KindBadge } from '../components/bits'
 import { useOptionNav } from '../components/useOptionNav'
-import { GraphCanvas, type GraphCanvasHandle } from '../graph/GraphCanvas'
-import { NODE_COLORS } from '../graph/style'
+import { GraphView, type GraphViewHandle } from '../graph/GraphView'
+import { CONT, OCC } from '../graph/palette'
 import { useVocabulary } from '../hooks/useVocabulary'
 
-// Default zeigt nur das repräsentative Grundgerüst (Top-Hubs nach Grad) —
-// wenige Knoten, flüssige Physik. Suche lädt das Ego-Netz eines Treffers nach
-// (Fokus+Kontext), ohne das Grundgerüst zu bewegen.
-const BACKBONE_N = 120
-const EGO_MAX = 150
+// DoI-Rendering: Das Skeleton (Top-PageRank je Community + Hubs) ist der
+// Startzustand; alles Weitere kommt fokusgetrieben per Expansion dazu.
+// Das Budget hält den Renderer konstant, egal wie groß die DB ist.
+const SKELETON_BUDGET = 800
+const NODE_BUDGET = 3000
+const EXPAND_MAX = 150
 const DEPTH_DEFAULT = 2
 
-/** Home: das repräsentative Grundgerüst des Weltmodells als Graph. Suche legt
-    das Ego-Netz eines Treffers (einstellbare Tiefe) als Fokus darüber und dimmt
-    das Grundgerüst zum Kontext; Filter dimmen statt zu verstecken. */
+/** Home: repräsentatives Grundgerüst des Weltmodells. Klick auf Node oder
+    Ghost-Badge lädt die Nachbarschaft nach; Suche lädt Treffer + Umfeld +
+    kürzesten Pfad zum bestehenden Ausschnitt (sonst Insel mit Badges). */
 export function GraphHome() {
   const navigate = useNavigate()
   const { helpers } = useVocabulary()
-  const canvasRef = useRef<GraphCanvasHandle>(null)
+  const viewRef = useRef<GraphViewHandle>(null)
 
   const [selected, setSelected] = useState<string | null>(null)
-  const [anchor, setAnchor] = useState<string | null>(null)
   const [depth, setDepth] = useState(DEPTH_DEFAULT)
   const [query, setQuery] = useState('')
   const [kindFilter, setKindFilter] = useState<Record<Kind, boolean>>({
@@ -33,31 +33,63 @@ export function GraphHome() {
     occurrent: true,
   })
   const [predicateFilter, setPredicateFilter] = useState<string>('')
+  const [loaded, setLoaded] = useState({ nodes: 0, edges: 0 })
 
-  const graph = useQuery({ queryKey: ['graph'], queryFn: () => api.graph(BACKBONE_N) })
+  const skeleton = useQuery({
+    queryKey: ['skeleton', SKELETON_BUDGET],
+    queryFn: () => api.skeleton(SKELETON_BUDGET),
+  })
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats })
   const selectedView = useQuery({
     queryKey: ['entity', selected, 'panel'],
     queryFn: () => api.entity(selected!),
     enabled: !!selected,
   })
-  // Fokus+Kontext: Ego-Netz des Treffers (bis Tiefe `depth`) wird nachgeladen.
-  const ego = useQuery({
-    queryKey: ['ego', anchor, depth],
-    queryFn: () => api.traverse({ start_id: anchor!, max_depth: depth, max_nodes: EGO_MAX }),
-    enabled: !!anchor,
-  })
-  const overlay = useMemo(
-    () => (anchor && ego.data
-      ? { nodes: ego.data.nodes, edges: ego.data.edges, anchorId: ego.data.start_id }
-      : null),
-    [anchor, ego.data],
-  )
+
+  // Konvergierte Positionen persistieren (R4) — gesammelt, nicht pro Tick.
+  const savePositions = useMutation({ mutationFn: api.savePositions })
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onSettled = useCallback((positions: { id: string; x: number; y: number }[]) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      if (positions.length) savePositions.mutate(positions.slice(0, 5000))
+    }, 1500)
+  }, [savePositions])
+
+  // Expansion: Nachbarschaft eines Nodes nachladen und am Anker einfügen.
+  const expanding = useRef(new Set<string>())
+  const expand = useCallback(async (id: string, maxDepth = 1) => {
+    if (expanding.current.has(id)) return
+    expanding.current.add(id)
+    try {
+      const data = await api.traverse({ start_id: id, max_depth: maxDepth, max_nodes: EXPAND_MAX })
+      viewRef.current?.addSubgraph(data.nodes, data.edges, data.start_id)
+    } finally {
+      expanding.current.delete(id)
+    }
+  }, [])
+
+  // Suchtreffer: Umfeld per Tiefe + kürzester Pfad zum bestehenden Ausschnitt,
+  // damit der Treffer nicht kontextlos schwebt. Kein Pfad → Insel mit Badges.
+  const spotlight = useCallback(async (id: string) => {
+    const targets = viewRef.current?.loadedIds() ?? []
+    const [env, path] = await Promise.all([
+      api.traverse({ start_id: id, max_depth: depth, max_nodes: EXPAND_MAX }),
+      targets.length
+        ? api.graphPath(id, targets.slice(0, 5000)).catch(() => null)
+        : Promise.resolve(null),
+    ])
+    if (path?.found && path.nodes.length) {
+      viewRef.current?.addSubgraph(path.nodes, path.edges)
+    }
+    viewRef.current?.addSubgraph(env.nodes, env.edges, env.start_id)
+    viewRef.current?.focusOn(env.start_id)
+    setSelected(env.start_id)
+  }, [depth])
 
   const predicatesInGraph = useMemo(
-    () => [...new Set([...(graph.data?.edges ?? []), ...(ego.data?.edges ?? [])]
-      .map((e) => e.predicate_id))].sort(),
-    [graph.data, ego.data],
+    () => [...new Set((skeleton.data?.edges ?? []).map((e) => e.predicate_id))].sort(),
+    [skeleton.data],
   )
   const hiddenKinds = useMemo(
     () => (Object.entries(kindFilter) as [Kind, boolean][])
@@ -66,7 +98,6 @@ export function GraphHome() {
   )
   const kindOf = useCallback((t: string) => helpers?.kindOf(t), [helpers])
 
-  // Suche im Server (findet auch Knoten außerhalb des Ausschnitts).
   const search = useQuery({
     queryKey: ['search', query],
     queryFn: () => api.search(query),
@@ -74,20 +105,13 @@ export function GraphHome() {
   })
   const results = query.trim().length >= 2 ? (search.data ?? []).slice(0, 8) : []
 
-  const spotlight = (id: string) => {
-    // Treffer wird zum Anker: sein Ego-Netz lädt nach (Fokus+Kontext), der
-    // Graph zentriert darauf — kein Wegspringen mehr aus dem Graphen.
-    setAnchor(id)
-    setSelected(id)
-  }
-
   const { active, listRef, onKeyDown } = useOptionNav(
     results,
-    (hit) => { spotlight(hit.id); setQuery('') },
+    (hit) => { void spotlight(hit.id); setQuery('') },
     () => setQuery(''),
   )
 
-  if (graph.error) return <ErrorBox error={graph.error} />
+  if (skeleton.error) return <ErrorBox error={skeleton.error} />
 
   return (
     <div className="page" style={{ maxWidth: 'none' }}>
@@ -107,7 +131,7 @@ export function GraphHome() {
               {results.map((hit, i) => (
                 <button key={hit.id} type="button" role="option" aria-selected={i === active}
                   className={i === active ? 'active' : undefined}
-                  onClick={() => { spotlight(hit.id); setQuery('') }}>
+                  onClick={() => { void spotlight(hit.id); setQuery('') }}>
                   <span className="chip">{hit.type_id}</span>
                   <span>{hit.label ?? hit.id.slice(0, 8)}</span>
                 </button>
@@ -117,7 +141,7 @@ export function GraphHome() {
         </div>
 
         {(['continuant', 'occurrent'] as Kind[]).map((kind) => (
-          <label key={kind} className="chip" style={{ cursor: 'pointer', color: NODE_COLORS[kind] }}>
+          <label key={kind} className="chip" style={{ cursor: 'pointer', color: kind === 'continuant' ? CONT : OCC }}>
             <input
               type="checkbox"
               checked={kindFilter[kind]}
@@ -137,50 +161,46 @@ export function GraphHome() {
           {predicatesInGraph.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
 
-        {anchor && (
-          <label className="chip" style={{ cursor: 'pointer' }} title="Tiefe der geladenen Nachbarschaft">
-            Tiefe {depth}
-            <input
-              type="range" min={1} max={3} value={depth}
-              style={{ width: 90, marginLeft: 8, cursor: 'pointer' }}
-              onChange={(e) => setDepth(Number(e.target.value))}
-              aria-label="Tiefe der Nachbarschaft"
-            />
-          </label>
-        )}
+        <label className="chip" style={{ cursor: 'pointer' }} title="Tiefe der Expansion bei Suche">
+          Tiefe {depth}
+          <input
+            type="range" min={1} max={3} value={depth}
+            style={{ width: 90, marginLeft: 8, cursor: 'pointer' }}
+            onChange={(e) => setDepth(Number(e.target.value))}
+            aria-label="Tiefe der Expansion"
+          />
+        </label>
 
-        <button type="button" className="ghost" onClick={() => canvasRef.current?.fit()}>
+        <button type="button" className="ghost" onClick={() => viewRef.current?.fit()}>
           Einpassen
         </button>
-        {anchor && (
-          <button type="button" className="ghost" onClick={() => { setAnchor(null); setSelected(null) }}>
-            Fokus lösen
-          </button>
-        )}
+        <button type="button" className="ghost" onClick={() => viewRef.current?.relayout()}
+          title="Layout neu berechnen (verwirft gespeicherte Positionen)">
+          Neu layouten
+        </button>
 
         <span className="mono small muted" style={{ marginLeft: 'auto' }}>
-          {graph.data?.nodes.length ?? 0} Gerüst
-          {anchor && ego.data && (
-            <> · {ego.data.nodes.length} Umfeld
-              {ego.data.total_nodes > ego.data.nodes.length ? ` (von ${ego.data.total_nodes})` : ''}</>
-          )}
-          {' · '}{graph.data?.total_nodes ?? 0} Welt · {stats.data?.statements ?? '–'} Statements
+          {loaded.nodes} geladen · {skeleton.data?.total_nodes ?? 0} Welt
+          {' · '}{stats.data?.statements ?? '–'} Statements
         </span>
       </div>
 
       <div className="graph-wrap" style={{ height: 'calc(100vh - 130px)' }}>
-        {graph.data && helpers ? (
-          <GraphCanvas
-            ref={canvasRef}
-            nodes={graph.data.nodes}
-            edges={graph.data.edges}
+        {skeleton.data && helpers ? (
+          <GraphView
+            ref={viewRef}
+            nodes={skeleton.data.nodes}
+            edges={skeleton.data.edges}
             kindOf={kindOf}
             hiddenKinds={hiddenKinds}
             dimPredicate={predicateFilter || undefined}
             matchText={query.trim().length >= 2 ? query : undefined}
-            overlay={overlay}
+            budget={NODE_BUDGET}
             onSelect={setSelected}
             onOpen={(id) => navigate(`/entity/${id}`)}
+            onExpand={(id) => { void expand(id) }}
+            onSettled={onSettled}
+            onStats={setLoaded}
           />
         ) : (
           <div className="graph-canvas" />
@@ -189,11 +209,11 @@ export function GraphHome() {
           {!selected && (
             <div className="stack">
               <p className="muted small" style={{ margin: 0 }}>
-                Repräsentatives Grundgerüst (Top-Hubs). Suche lädt das Umfeld
-                eines Treffers nach — Tiefe per Slider. Hover: Nachbarschaft ·
-                Klick: Details · Doppelklick: Entity-Seite.
+                Repräsentatives Grundgerüst (Top-PageRank je Community).
+                „+N"-Badges zeigen nicht geladene Nachbarn — Klick lädt sie nach.
+                Suche holt Treffer samt Pfad hierher.
               </p>
-              {graph.data?.nodes.length === 0 && (
+              {skeleton.data?.nodes.length === 0 && (
                 <p className="small">
                   Noch leer. <Link to="/create">Erste Entity anlegen</Link> oder{' '}
                   <Link to="/sources">Dokument ingestieren</Link>.

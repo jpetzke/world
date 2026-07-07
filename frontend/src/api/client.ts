@@ -1,9 +1,9 @@
 import type {
   ApiKey, ApiKeyScope, Entity, EntityListItem, EntityView,
-  FollowerListCommitResult, FollowerListPreview, FollowerRowIn, GraphSnapshot,
-  Neighborhood, PipelineReport, Proposals, ResolveResult, SearchHit,
-  SourceDetail, SourceDoc, SourceFileMeta, SourceListItem, Statement, Stats,
-  TimelineItem, ValuePayload, Vocabulary,
+  FollowerListCommitResult, FollowerListPreview, FollowerRowIn, GraphPath,
+  GraphSnapshot, Neighborhood, PipelineReport, Proposals, ResolveResult,
+  SearchHit, Skeleton, SourceDetail, SourceDoc, SourceFileMeta,
+  SourceListItem, Statement, Stats, TimelineItem, ValuePayload, Vocabulary,
 } from './types'
 
 /** Gate-Rejects (422) tragen eine Problems-Liste — die zeigen wir inline. */
@@ -75,6 +75,13 @@ export const api = {
 
   stats: () => req<Stats>('/stats'),
   graph: (maxNodes = 400) => req<GraphSnapshot>(`/graph${qs({ max_nodes: maxNodes })}`),
+  skeleton: (budget = 800) => req<Skeleton>(`/graph/skeleton${qs({ budget })}`),
+  savePositions: (positions: { id: string; x: number; y: number }[]) =>
+    req<{ saved: number }>('/graph/positions', post({ positions })),
+  graphPath: (fromId: string, targetIds: string[], maxDepth = 6) =>
+    req<GraphPath>('/graph/path', post({
+      from_id: fromId, target_ids: targetIds, max_depth: maxDepth,
+    })),
   vocabulary: () => req<Vocabulary>('/registry/vocabulary'),
   proposals: (status: string) => req<Proposals>(`/registry/proposals${qs({ status })}`),
   proposeType: (body: unknown) => req('/registry/proposals/types', post(body)),
