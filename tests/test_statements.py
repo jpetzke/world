@@ -458,3 +458,90 @@ def test_qualifier_quantity_mit_unit(conn, source_id):
         "SELECT * FROM qualifier WHERE statement_id = %s", (new["id"],)
     ).fetchone()
     assert q2["value_unit"] == "EUR"
+
+
+def test_meta_validierung_vor_db_check(conn, person, source_id):
+    # Klare ValidationError statt roher CheckViolation aus der DB
+    for kwargs, msg in (
+        ({"rank": "superduper"}, "rank"),
+        ({"origin": "erfunden"}, "origin"),
+        ({"confidence": 1.5}, "confidence"),
+    ):
+        with pytest.raises(ValidationError, match=msg):
+            commit_statement(
+                conn, subject_id=person, predicate_id="name",
+                value={"type": "string", "text": "Meta"},
+                source_ids=[source_id], **kwargs,
+            )
+
+
+def test_leeres_gueltigkeitsfenster_rejected(conn, person, source_id):
+    with pytest.raises(ValidationError, match="Gültigkeitsfenster"):
+        commit_statement(
+            conn, subject_id=person, predicate_id="name",
+            value={"type": "string", "text": "Fenster"},
+            source_ids=[source_id],
+            valid_from="2025-01-01T00:00:00Z", valid_to="2020-01-01T00:00:00Z",
+        )
+
+
+def test_identifying_konflikt_klare_meldung(conn, source_id):
+    a = str(create_entity(conn, type_id="Person", label="Ident A")["id"])
+    b = str(create_entity(conn, type_id="Person", label="Ident B")["id"])
+    commit_statement(
+        conn, subject_id=a, predicate_id="email",
+        value={"type": "string", "text": "ident-konflikt@example.org"},
+        source_ids=[source_id],
+    )
+    with pytest.raises(ValidationError, match="welt_merge_entities"):
+        commit_statement(
+            conn, subject_id=b, predicate_id="email",
+            value={"type": "string", "text": "ident-konflikt@example.org"},
+            source_ids=[source_id],
+        )
+
+
+def test_identische_behauptung_wird_rebestaetigt(conn, person, source_id):
+    # Snapshot-Philosophie generalisiert: exakt identische Behauptung aus
+    # neuer Quelle → Reference ans bestehende Statement, kein Duplikat.
+    first = commit_statement(
+        conn, subject_id=person, predicate_id="name",
+        value={"type": "string", "text": "Duplikat Dora"}, source_ids=[source_id],
+    )
+    from weltmodell.pipeline import ingest_document
+
+    src2 = str(ingest_document(
+        conn, raw={}, url=None, activity="test:zweite-quelle", agent="pytest",
+    )["id"])
+    second = commit_statement(
+        conn, subject_id=person, predicate_id="name",
+        value={"type": "string", "text": "Duplikat Dora"}, source_ids=[src2],
+    )
+    assert str(second["id"]) == str(first["id"])
+    assert second["flags"] == ["reconfirmed"]
+    refs = conn.execute(
+        "SELECT count(*) AS n FROM reference WHERE statement_id = %s",
+        (first["id"],),
+    ).fetchone()["n"]
+    assert refs == 2
+    # Anderes Gültigkeitsfenster bleibt eine EIGENE Behauptung
+    third = commit_statement(
+        conn, subject_id=person, predicate_id="name",
+        value={"type": "string", "text": "Duplikat Dora"}, source_ids=[src2],
+        valid_from="2020-01-01T00:00:00Z",
+    )
+    assert str(third["id"]) != str(first["id"])
+
+
+def test_fix_zaehlt_sich_nicht_als_kardinalitaetskonflikt(conn, source_id):
+    acc = str(create_entity(
+        conn, type_id="SocialMediaAccount", label="@kardfix")["id"])
+    row = commit_statement(
+        conn, subject_id=acc, predicate_id="handle",
+        value={"type": "string", "text": "kardfix"}, source_ids=[source_id],
+    )
+    fixed = fix_statement(
+        conn, str(row["id"]), reason="Tippfehler",
+        value={"type": "string", "text": "kardfix2"},
+    )
+    assert fixed["flags"] == []

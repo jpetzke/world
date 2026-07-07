@@ -7,6 +7,7 @@ Invarianten, hier im Code erzwungen:
   transaktionszeitlich (system_to) und legen eine neue an (Inv. 4).
 """
 
+from datetime import datetime
 from typing import Any
 
 import psycopg
@@ -14,6 +15,48 @@ import psycopg
 from .entities import canonical_id, get_entity, refresh_entity_label, run_bulk
 from .errors import NotFoundError, ValidationError
 from .registry import get_predicate, is_subtype, type_interfaces
+
+RANKS = ("preferred", "normal", "deprecated")
+ORIGINS = ("asserted", "inferred")
+
+
+def _check_meta(
+    *, rank: str | None = None, origin: str | None = None,
+    confidence: float | None = None,
+) -> None:
+    """Feld-Validierung VOR dem Insert — der DB-Check würde dieselben Regeln
+    erzwingen, aber als roher CheckViolation-Fehler statt klarer Meldung."""
+    if rank is not None and rank not in RANKS:
+        raise ValidationError(f"Ungültiger rank '{rank}' (erlaubt: {', '.join(RANKS)})")
+    if origin is not None and origin not in ORIGINS:
+        raise ValidationError(
+            f"Ungültiger origin '{origin}' (erlaubt: {', '.join(ORIGINS)})"
+        )
+    if confidence is not None and not 0 <= confidence <= 1:
+        raise ValidationError(f"confidence muss in [0, 1] liegen, ist {confidence}")
+
+
+def _check_valid_window(valid_from: Any, valid_to: Any) -> None:
+    """Leeres Gültigkeitsfenster (from > to) ist immer ein Eingabefehler."""
+    if valid_from is None or valid_to is None:
+        return
+
+    def as_dt(v: Any) -> datetime | None:
+        if isinstance(v, datetime):
+            return v
+        try:
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except ValueError:
+            return None  # unparsebar → die DB meldet das Format-Problem
+
+    f, t = as_dt(valid_from), as_dt(valid_to)
+    if f is None or t is None or (f.tzinfo is None) != (t.tzinfo is None):
+        return  # unvergleichbar (naive vs. aware) — die DB normalisiert
+    if f > t:
+        raise ValidationError(
+            f"Leeres Gültigkeitsfenster: valid_from ({valid_from}) liegt "
+            f"nach valid_to ({valid_to})"
+        )
 
 VALUE_COLUMNS = (
     "object_id", "value_text", "value_number", "value_unit",
@@ -69,6 +112,7 @@ def validate_statement(
     subject_id: str,
     predicate_id: str,
     value: dict[str, Any],
+    exclude_statement_id: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Shape-Check gegen domain/range (§7 VALIDATE): reject oder flag.
 
@@ -121,8 +165,9 @@ def validate_statement(
         existing = conn.execute(
             """SELECT count(*) AS n FROM statement
                WHERE subject_id = %s AND predicate_id = %s
-                 AND system_to IS NULL AND rank <> 'deprecated'""",
-            (subject_id, predicate_id),
+                 AND system_to IS NULL AND rank <> 'deprecated'
+                 AND (%s::uuid IS NULL OR id <> %s)""",
+            (subject_id, predicate_id, exclude_statement_id, exclude_statement_id),
         ).fetchone()
         if existing["n"] > 0:
             flags.append("cardinality_conflict_1:1")
@@ -149,6 +194,8 @@ def commit_statement(
         raise ValidationError(
             "Kein Fakt ohne Provenance (Invariante 3): ≥1 source_id nötig"
         )
+    _check_meta(rank=rank, origin=origin, confidence=confidence)
+    _check_valid_window(valid_from, valid_to)
     for sid in source_ids:
         if not conn.execute(
             "SELECT 1 FROM source_document WHERE id = %s", (sid,)
@@ -166,8 +213,9 @@ def commit_statement(
     # identifying-Keys: derselbe Wert auf derselben Entity wird RE-BESTÄTIGT
     # (neue Reference ans bestehende Statement, Snapshot-Philosophie) statt
     # dupliziert — der partielle Unique-Index (0014) machte die Dublette sonst
-    # zum DB-Fehler. Derselbe Wert auf einer ANDEREN Entity bleibt ein Fehler
-    # (echte Dublette, per Index erzwungen).
+    # zum DB-Fehler. Derselbe Wert auf einer ANDEREN Entity ist eine echte
+    # Dublette: statt sie in den Index laufen zu lassen (roher DB-Fehler),
+    # klar benennen, wem der Key gehört — Kuration ist merge, nicht Commit.
     if cols["value_type"] == "string" and get_predicate(conn, predicate_id)["identifying"]:
         existing = conn.execute(
             """SELECT * FROM statement
@@ -184,6 +232,60 @@ def commit_statement(
                 )
             existing["flags"] = ["reconfirmed"]
             return existing
+        other = conn.execute(
+            """SELECT e.id, e.label FROM statement s
+               JOIN entity e ON e.id = s.subject_id
+               WHERE s.predicate_id = %s AND s.value_text = %s
+                 AND s.system_to IS NULL AND s.rank <> 'deprecated'
+                 AND s.subject_id <> %s
+               LIMIT 1""",
+            (predicate_id, cols["value_text"], subject_id),
+        ).fetchone()
+        if other:
+            raise ValidationError(
+                f"identifying-Konflikt: {predicate_id}="
+                f"'{cols['value_text']}' gehört bereits Entity {other['id']} "
+                f"('{other['label']}') — Dublette? welt_resolve prüfen, "
+                "welt_merge_entities führt verlustfrei zusammen."
+            )
+
+    # Snapshot-Philosophie generalisiert: die EXAKT identische Behauptung
+    # (gleicher Wert, gleiches Gültigkeitsfenster, keine Qualifier beidseits)
+    # wird re-bestätigt statt dupliziert — Re-Importe derselben Quelle
+    # erzeugen sonst bei jedem Lauf identische Zeilen. Abweichende Werte,
+    # Fenster oder Qualifier bleiben eigenständige Behauptungen (§6).
+    if not qualifiers:
+        dup = conn.execute(
+            """SELECT * FROM statement s
+               WHERE s.subject_id = %(subject_id)s
+                 AND s.predicate_id = %(predicate_id)s
+                 AND s.system_to IS NULL AND s.rank <> 'deprecated'
+                 AND s.value_type = %(value_type)s
+                 AND s.object_id IS NOT DISTINCT FROM %(object_id)s
+                 AND s.value_text IS NOT DISTINCT FROM %(value_text)s
+                 AND s.value_number IS NOT DISTINCT FROM %(value_number)s
+                 AND s.value_unit IS NOT DISTINCT FROM %(value_unit)s
+                 AND s.value_datetime IS NOT DISTINCT FROM %(value_datetime)s
+                 AND s.value_geo::text IS NOT DISTINCT FROM
+                     %(value_geo)s::geography::text
+                 AND s.value_json IS NOT DISTINCT FROM %(value_json)s::jsonb
+                 AND s.valid_from IS NOT DISTINCT FROM %(valid_from)s::timestamptz
+                 AND s.valid_to IS NOT DISTINCT FROM %(valid_to)s::timestamptz
+                 AND NOT EXISTS (SELECT 1 FROM qualifier q
+                                 WHERE q.statement_id = s.id)
+               LIMIT 1""",
+            {"subject_id": subject_id, "predicate_id": predicate_id, **cols,
+             "valid_from": valid_from, "valid_to": valid_to},
+        ).fetchone()
+        if dup:
+            for sid in source_ids:
+                conn.execute(
+                    """INSERT INTO reference (statement_id, source_id)
+                       VALUES (%s, %s) ON CONFLICT DO NOTHING""",
+                    (dup["id"], sid),
+                )
+            dup["flags"] = ["reconfirmed"]
+            return dup
 
     row = conn.execute(
         """INSERT INTO statement
@@ -264,6 +366,7 @@ def supersede_statement(
     """Bitemporale Änderung (Inv. 4): alte Zeile transaktionszeitlich schließen
     (system_to = now()), neue Zeile mit geänderten Feldern anlegen.
     Qualifier und References werden mitkopiert — nichts geht verloren."""
+    _check_meta(rank=rank, confidence=confidence)
     old = conn.execute(
         "SELECT * FROM statement WHERE id = %s", (statement_id,)
     ).fetchone()
@@ -271,6 +374,9 @@ def supersede_statement(
         raise NotFoundError(f"Statement {statement_id} nicht gefunden")
     if old["system_to"] is not None:
         raise ValidationError("Statement ist nicht mehr aktuell (system_to gesetzt)")
+    _check_valid_window(
+        old["valid_from"], valid_to if valid_to is not None else old["valid_to"]
+    )
 
     conn.execute(
         "UPDATE statement SET system_to = now() WHERE id = %s", (statement_id,)
@@ -378,12 +484,17 @@ def fix_statement(
     """
     if not reason or not reason.strip():
         raise ValidationError("fix braucht einen reason (Audit-Pflicht).")
+    _check_meta(rank=rank, confidence=confidence)
 
     old = conn.execute(
         "SELECT * FROM statement WHERE id = %s", (statement_id,)
     ).fetchone()
     if old is None:
         raise NotFoundError(f"Statement {statement_id} nicht gefunden")
+    _check_valid_window(
+        valid_from if valid_from is not None else old["valid_from"],
+        valid_to if valid_to is not None else old["valid_to"],
+    )
 
     subject_id, predicate_id = str(old["subject_id"]), old["predicate_id"]
 
@@ -400,7 +511,8 @@ def fix_statement(
         if value.get("type") == "entity" and value.get("object_id"):
             value = {**value, "object_id": canonical_id(conn, value["object_id"])}
         cols, flags = validate_statement(
-            conn, subject_id=subject_id, predicate_id=predicate_id, value=value
+            conn, subject_id=subject_id, predicate_id=predicate_id, value=value,
+            exclude_statement_id=str(statement_id),
         )
         casts = {"value_geo": "::geography", "value_json": "::jsonb"}
         for col in ("value_type", *VALUE_COLUMNS):

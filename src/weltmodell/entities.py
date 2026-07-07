@@ -97,7 +97,7 @@ def refresh_entity_label(
     changed_predicate ist der Cheap-Guard fürs den Write-Path: ist es gesetzt
     und NICHT das label_predicate des Typs, passiert nichts. „Bester" Bezeichner
     = aktuelle Sicht (system_to IS NULL, nicht deprecated), preferred vor normal,
-    dann höchste Confidence, dann jüngster. Fehlt jeder gültige Bezeichner
+    dann höchste Confidence, dann Belegzahl, dann jüngster. Fehlt jeder gültige Bezeichner
     (z. B. alle deprecated), bleibt der bisherige Cache stehen — kein Datenverlust.
     """
     row = conn.execute(
@@ -110,13 +110,19 @@ def refresh_entity_label(
     label_pred = row["label_predicate"]
     if changed_predicate is not None and changed_predicate != label_pred:
         return
+    # „Bester" Bezeichner: preferred vor normal, dann Confidence, dann
+    # Belegzahl (ein re-bestätigter Name schlägt einen einmal gesehenen),
+    # erst zuletzt Neuheit.
     best = conn.execute(
         """SELECT value_text FROM statement
            WHERE subject_id = %s AND predicate_id = %s
              AND system_to IS NULL AND rank <> 'deprecated'
              AND value_text IS NOT NULL
            ORDER BY CASE rank WHEN 'preferred' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
-                    confidence DESC, system_from DESC
+                    confidence DESC,
+                    (SELECT count(*) FROM reference r
+                     WHERE r.statement_id = statement.id) DESC,
+                    system_from DESC
            LIMIT 1""",
         (str(entity_id), label_pred),
     ).fetchone()
