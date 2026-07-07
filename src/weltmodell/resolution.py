@@ -161,13 +161,26 @@ def merge_entity(
         )
 
     moved_subject = conn.execute(
-        "UPDATE statement SET subject_id = %s WHERE subject_id = %s",
+        "UPDATE statement SET subject_id = %s WHERE subject_id = %s RETURNING id",
         (target_id, source_id),
-    ).rowcount
+    ).fetchall()
     moved_object = conn.execute(
-        "UPDATE statement SET object_id = %s WHERE object_id = %s",
+        "UPDATE statement SET object_id = %s WHERE object_id = %s RETURNING id",
         (target_id, source_id),
-    ).rowcount
+    ).fetchall()
+    # Merge-Artefakte: Statements, die durchs Umbiegen selbstreferenziell
+    # wurden (Dublette kannte/folgte dem Original), sind keine Fakten über
+    # die Welt — transaktionszeitlich schließen (Historie bleibt), nie in
+    # der Current View zeigen. Nur bewegte Zeilen, nie unabhängige Self-Loops.
+    moved_ids = [r["id"] for r in moved_subject + moved_object]
+    self_loops = 0
+    if moved_ids:
+        self_loops = conn.execute(
+            """UPDATE statement SET system_to = now()
+               WHERE id = ANY(%s) AND subject_id = object_id
+                 AND system_to IS NULL""",
+            (moved_ids,),
+        ).rowcount
     conn.execute(
         "UPDATE qualifier SET object_id = %s WHERE object_id = %s",
         (target_id, source_id),
@@ -178,5 +191,6 @@ def merge_entity(
     return {
         "merged": source_id,
         "into": target_id,
-        "statements_moved": moved_subject + moved_object,
+        "statements_moved": len(moved_ids),
+        "self_loops_closed": self_loops,
     }

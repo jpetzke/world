@@ -186,3 +186,19 @@ def test_resolve_exaktes_label_ohne_embedding(conn):
     assert res["candidates"], "Exakter Label-Match ohne Embedding erwartet"
     assert res["candidates"][0]["label"] == "TestNetz"
     assert res["candidates"][0]["similarity"] >= 0.99
+
+
+def test_merge_schliesst_self_loops(conn, source_id):
+    a = str(create_entity(conn, type_id="Person", label="Loop A")["id"])
+    b = str(create_entity(conn, type_id="Person", label="Loop B")["id"])
+    commit_statement(
+        conn, subject_id=a, predicate_id="knows",
+        value={"type": "entity", "object_id": b}, source_ids=[source_id],
+    )
+    res = merge_entity(conn, a, b)
+    assert res["self_loops_closed"] == 1
+    view = entity_view(conn, b)
+    assert all(
+        not (str(s["subject_id"]) == b and str(s.get("object_id")) == b)
+        for s in view["statements"]
+    ), "Self-Loop darf nicht in der Current View auftauchen"
