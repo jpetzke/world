@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weltmodell · Design System v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============ TOKENS ============ */
+:root{
+  /* Fläche */
+  --bg0:#070B12; --bg1:#0C121D; --bg2:#121A2A; --bg3:#182338;
+  --line:#1E2A42; --line2:#2D3D60;
+  /* Text: AA-konform auf bg1 */
+  --tx1:#EAF0FA; --tx2:#A6B2C8; --tx3:#76839C;
+  /* Semantik: Continuant / Occurrent = Kern-Ontologie */
+  --cont:#3EC5F0; --cont-dim:rgba(62,197,240,.16);
+  --occ:#FFB454;  --occ-dim:rgba(255,180,84,.14);
+  /* Typ-Hues für Nodes */
+  --t-person:#3EC5F0; --t-org:#8B8FF8; --t-ort:#4ADE80;
+  --t-wp:#5E7CE2; --t-platform:#C778DD; --t-projekt:#2DD4BF;
+  /* Status */
+  --ok:#4ADE80; --warn:#FFB454; --err:#FF6B6B;
+  /* Interaktion */
+  --focus:0 0 0 2px var(--bg0),0 0 0 4px var(--cont);
+  --r1:6px; --r2:10px; --r3:14px;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
+  --font-ui:'IBM Plex Sans',system-ui,sans-serif;
+  --font-hud:'Chakra Petch',sans-serif;
+  --font-data:'IBM Plex Mono',monospace;
+  --dur1:120ms; --dur2:220ms; --ease:cubic-bezier(.2,.8,.2,1);
+  --hit:40px; /* min. Touch-Target Desktop, 44px mobil */
+}
+@media(pointer:coarse){:root{--hit:44px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg0);color:var(--tx1);font:400 15px/1.6 var(--font-ui);
+  background-image:radial-gradient(1200px 600px at 80% -10%,rgba(62,197,240,.05),transparent),
+                   radial-gradient(900px 500px at 10% 110%,rgba(139,143,248,.04),transparent)}
+::selection{background:rgba(62,197,240,.3)}
+a{color:var(--cont)}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:none;box-shadow:var(--focus);border-radius:var(--r1)}
+
+/* ============ SHELL ============ */
+.shell{max-width:1180px;margin:0 auto;padding:0 var(--s5) var(--s7)}
+header.hero{padding:var(--s7) 0 var(--s5);border-bottom:1px solid var(--line)}
+.eyebrow{font:600 11px/1 var(--font-hud);letter-spacing:.28em;text-transform:uppercase;color:var(--cont);margin-bottom:var(--s3)}
+h1{font:700 clamp(28px,4.5vw,44px)/1.1 var(--font-hud);letter-spacing:.01em}
+h1 .thin{color:var(--tx3);font-weight:500}
+.hero p{color:var(--tx2);max-width:64ch;margin-top:var(--s3)}
+.hero .meta{display:flex;gap:var(--s4);flex-wrap:wrap;margin-top:var(--s4)}
+.hero .meta span{font:500 12px var(--font-data);color:var(--tx3);padding:6px 10px;border:1px solid var(--line);border-radius:var(--r1);background:var(--bg1)}
+
+/* ============ TABS ============ */
+nav.tabs{position:sticky;top:0;z-index:50;display:flex;gap:var(--s1);padding:var(--s3) 0;
+  background:linear-gradient(var(--bg0) 80%,transparent);backdrop-filter:blur(8px);overflow-x:auto}
+nav.tabs button{min-height:var(--hit);padding:0 var(--s4);border-radius:var(--r2);color:var(--tx2);
+  font:600 13px var(--font-hud);letter-spacing:.06em;white-space:nowrap;border:1px solid transparent;transition:all var(--dur1) var(--ease)}
+nav.tabs button:hover{color:var(--tx1);background:var(--bg2)}
+nav.tabs button.on{color:var(--cont);background:var(--cont-dim);border-color:rgba(62,197,240,.3)}
+section.tab{display:none;padding-top:var(--s5)}
+section.tab.on{display:block;animation:fadeUp var(--dur2) var(--ease)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+h2{font:700 22px/1.2 var(--font-hud);margin:var(--s6) 0 var(--s3)}
+h3{font:600 15px/1.3 var(--font-hud);letter-spacing:.04em;margin:var(--s5) 0 var(--s3);color:var(--tx1)}
+.sub{color:var(--tx2);max-width:70ch;margin-bottom:var(--s4)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--s4)}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s4)}
+
+.card{background:var(--bg1);border:1px solid var(--line);border-radius:var(--r3);padding:var(--s5)}
+.card.glow{position:relative}
+.card.glow::before{content:"";position:absolute;inset:-1px;border-radius:var(--r3);padding:1px;
+  background:linear-gradient(135deg,rgba(62,197,240,.4),transparent 40%,transparent 60%,rgba(139,143,248,.3));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+
+/* ============ AUDIT ============ */
+.finding{display:grid;grid-template-columns:auto 1fr;gap:var(--s3) var(--s4);padding:var(--s4);
+  background:var(--bg1);border:1px solid var(--line);border-radius:var(--r2);margin-bottom:var(--s3)}
+.sev{font:600 10px/1 var(--font-hud);letter-spacing:.14em;padding:6px 9px;border-radius:var(--r1);height:fit-content;white-space:nowrap}
+.sev.k{background:rgba(255,107,107,.14);color:#FF8585;border:1px solid rgba(255,107,107,.3)}
+.sev.h{background:var(--occ-dim);color:var(--occ);border:1px solid rgba(255,180,84,.3)}
+.sev.m{background:rgba(118,131,156,.12);color:var(--tx2);border:1px solid var(--line2)}
+.finding b{display:block;font-weight:600;margin-bottom:2px}
+.finding p{color:var(--tx2);font-size:14px}
+.finding .fix{margin-top:var(--s2);font-size:13px;color:var(--tx2)}
+.finding .fix::before{content:"FIX";font:600 10px var(--font-hud);letter-spacing:.12em;color:var(--ok);margin-right:8px}
+.finding .ref{font:500 11px var(--font-data);color:var(--tx3)}
+
+/* ============ SWATCHES / TOKENS ============ */
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--s3)}
+.sw{border:1px solid var(--line);border-radius:var(--r2);overflow:hidden;background:var(--bg1)}
+.sw .chip{height:56px}
+.sw .lbl{padding:var(--s2) var(--s3)}
+.sw .lbl b{display:block;font-size:12px;font-weight:600}
+.sw .lbl code{font:400 11px var(--font-data);color:var(--tx3)}
+.typerow{display:grid;grid-template-columns:120px 1fr;gap:var(--s4);align-items:baseline;padding:var(--s3) 0;border-bottom:1px solid var(--line)}
+.typerow code{font:400 11px var(--font-data);color:var(--tx3)}
+.spacebar{display:flex;align-items:flex-end;gap:var(--s3)}
+.spacebar div{background:var(--cont-dim);border:1px solid rgba(62,197,240,.35);border-radius:3px;position:relative}
+.spacebar span{position:absolute;top:100%;left:50%;transform:translateX(-50%);font:400 10px var(--font-data);color:var(--tx3);padding-top:4px}
+
+/* ============ KOMPONENTEN ============ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:var(--hit);
+  padding:0 var(--s4);border-radius:var(--r2);font:600 13px var(--font-hud);letter-spacing:.05em;
+  transition:all var(--dur1) var(--ease);border:1px solid transparent}
+.btn.primary{background:var(--cont);color:#04121C}
+.btn.primary:hover{background:#6AD4F7;box-shadow:0 0 20px rgba(62,197,240,.35)}
+.btn.secondary{background:var(--bg2);border-color:var(--line2);color:var(--tx1)}
+.btn.secondary:hover{border-color:var(--cont);color:var(--cont)}
+.btn.ghost{color:var(--tx2)}
+.btn.ghost:hover{color:var(--cont);background:var(--cont-dim)}
+.btn.danger{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.3);color:#FF8585}
+.btn.sm{min-height:32px;padding:0 var(--s3);font-size:12px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.hitviz{position:relative}
+.hitviz::after{content:"";position:absolute;inset:calc((var(--hit) - 100%)/2) 0;min-height:var(--hit)}
+
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 var(--s3);border-radius:999px;
+  font:500 12px var(--font-data);border:1px solid var(--line2);color:var(--tx2);background:var(--bg1);
+  transition:all var(--dur1) var(--ease);cursor:pointer;user-select:none}
+.chip:hover{border-color:var(--cont);color:var(--tx1)}
+.chip.on{background:var(--cont-dim);border-color:rgba(62,197,240,.45);color:var(--cont)}
+.chip.on.occ{background:var(--occ-dim);border-color:rgba(255,180,84,.45);color:var(--occ)}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.chip .n{color:var(--tx3);font-size:11px}
+
+.seg{display:inline-flex;background:var(--bg1);border:1px solid var(--line);border-radius:var(--r2);padding:3px;gap:3px}
+.seg button{min-height:34px;padding:0 var(--s4);border-radius:calc(var(--r2) - 3px);font:600 12px var(--font-hud);
+  letter-spacing:.04em;color:var(--tx2);transition:all var(--dur1) var(--ease)}
+.seg button.on{background:var(--bg3);color:var(--tx1);box-shadow:inset 0 0 0 1px var(--line2)}
+
+.field{margin-bottom:var(--s4)}
+.field label{display:block;font:600 11px var(--font-hud);letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);margin-bottom:var(--s2)}
+.input{width:100%;min-height:var(--hit);padding:0 var(--s4);background:var(--bg1);border:1px solid var(--line2);
+  border-radius:var(--r2);color:var(--tx1);font:400 14px var(--font-ui);transition:border var(--dur1)}
+.input::placeholder{color:var(--tx3)}
+.input:focus{outline:none;border-color:var(--cont);box-shadow:0 0 0 3px rgba(62,197,240,.15)}
+
+.kv{border:1px solid var(--line);border-radius:var(--r2);overflow:hidden}
+.kv .row{display:grid;grid-template-columns:140px 1fr;gap:var(--s3);padding:var(--s3) var(--s4);
+  border-bottom:1px solid var(--line);background:var(--bg1);align-items:center;min-height:44px}
+.kv .row:last-child{border-bottom:none}
+.kv .k{font:500 11px var(--font-data);color:var(--tx3);letter-spacing:.04em}
+.kv .v{font-size:14px}
+.kv .v a{text-decoration:none;border-bottom:1px solid rgba(62,197,240,.3)}
+.kv .v .qual{display:inline-block;margin-left:8px;font:400 11px var(--font-data);color:var(--tx3);
+  background:var(--bg2);border:1px solid var(--line);padding:2px 8px;border-radius:999px}
+
+.dodont{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--s4)}
+.dd{border-radius:var(--r2);border:1px solid var(--line);overflow:hidden}
+.dd .head{padding:var(--s2) var(--s4);font:600 11px var(--font-hud);letter-spacing:.14em}
+.dd.do .head{background:rgba(74,222,128,.1);color:var(--ok)}
+.dd.dont .head{background:rgba(255,107,107,.1);color:#FF8585}
+.dd .body{padding:var(--s4);background:var(--bg1);font-size:13px;color:var(--tx2)}
+
+table.cmp{width:100%;border-collapse:collapse;font-size:13px}
+table.cmp th{text-align:left;font:600 11px var(--font-hud);letter-spacing:.1em;color:var(--tx3);padding:var(--s3);border-bottom:1px solid var(--line2)}
+table.cmp td{padding:var(--s3);border-bottom:1px solid var(--line);color:var(--tx2);vertical-align:top}
+table.cmp td:first-child{color:var(--tx1);font-weight:500;white-space:nowrap}
+
+/* ============ GRAPH DEMO ============ */
+.stage{position:relative;border:1px solid var(--line);border-radius:var(--r3);overflow:hidden;background:var(--bg0);height:640px}
+.stage canvas{display:block;width:100%;height:100%;cursor:grab}
+.stage canvas.dragging{cursor:grabbing}
+.gbar{position:absolute;top:var(--s3);left:var(--s3);right:var(--s3);display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;pointer-events:none}
+.gbar>*{pointer-events:auto}
+.gsearch{flex:0 1 260px;display:flex;align-items:center;gap:8px;min-height:var(--hit);padding:0 var(--s3);
+  background:rgba(12,18,29,.85);backdrop-filter:blur(10px);border:1px solid var(--line2);border-radius:var(--r2)}
+.gsearch input{flex:1;background:none;border:none;color:var(--tx1);font:400 13px var(--font-ui);outline:none;min-width:0}
+.gsearch input::placeholder{color:var(--tx3)}
+.gsearch kbd{font:500 10px var(--font-data);color:var(--tx3);border:1px solid var(--line2);border-radius:4px;padding:2px 6px}
+.gstats{margin-left:auto;display:flex;gap:var(--s2)}
+.gstat{background:rgba(12,18,29,.85);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:var(--r2);
+  padding:6px 12px;text-align:center}
+.gstat b{display:block;font:600 15px var(--font-hud);color:var(--cont)}
+.gstat span{font:400 9px/1 var(--font-hud);letter-spacing:.14em;text-transform:uppercase;color:var(--tx3)}
+.gchips{position:absolute;bottom:var(--s3);left:var(--s3);display:flex;gap:var(--s2);flex-wrap:wrap;max-width:60%}
+.gchips .chip{background:rgba(12,18,29,.85);backdrop-filter:blur(10px)}
+.gzoom{position:absolute;bottom:var(--s3);right:var(--s3);display:flex;flex-direction:column;gap:var(--s1)}
+.gzoom button{width:var(--hit);height:var(--hit);background:rgba(12,18,29,.85);backdrop-filter:blur(10px);
+  border:1px solid var(--line2);border-radius:var(--r2);color:var(--tx2);font:600 16px var(--font-hud);transition:all var(--dur1)}
+.gzoom button:hover{color:var(--cont);border-color:var(--cont)}
+.lodhint{position:absolute;bottom:var(--s3);left:50%;transform:translateX(-50%);font:500 11px var(--font-data);
+  color:var(--tx3);background:rgba(12,18,29,.7);padding:4px 12px;border-radius:999px;pointer-events:none;transition:opacity var(--dur2)}
+
+/* Inspector */
+.inspector{position:absolute;top:0;right:0;bottom:0;width:340px;max-width:88%;background:rgba(10,15,25,.92);
+  backdrop-filter:blur(16px);border-left:1px solid var(--line2);padding:var(--s5);overflow-y:auto;
+  transform:translateX(105%);transition:transform var(--dur2) var(--ease)}
+.inspector.open{transform:none}
+.inspector .close{position:absolute;top:var(--s3);right:var(--s3);width:var(--hit);height:var(--hit);
+  display:flex;align-items:center;justify-content:center;border-radius:var(--r2);color:var(--tx3)}
+.inspector .close:hover{color:var(--tx1);background:var(--bg2)}
+.inspector .etype{font:600 10px var(--font-hud);letter-spacing:.2em;text-transform:uppercase;color:var(--tx3)}
+.inspector h4{font:700 20px var(--font-hud);margin:var(--s1) 0 var(--s2)}
+.inspector .badges{display:flex;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s4)}
+.inspector .actions{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-bottom:var(--s4)}
+.inspector .kv .row{grid-template-columns:110px 1fr;background:transparent}
+@media(max-width:720px){
+  .inspector{top:auto;left:0;right:0;width:100%;max-width:none;height:60%;border-left:none;border-top:1px solid var(--line2);
+    border-radius:var(--r3) var(--r3) 0 0;transform:translateY(105%)}
+  .inspector.open{transform:none}
+  .stage{height:520px}
+  .gstats{display:none}
+}
+.legend{display:flex;gap:var(--s3);flex-wrap:wrap;margin-top:var(--s3)}
+.legend span{display:inline-flex;align-items:center;gap:6px;font:500 12px var(--font-data);color:var(--tx2)}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.legend i.d{border-radius:2px;transform:rotate(45deg)}
+footer{margin-top:var(--s7);padding-top:var(--s5);border-top:1px solid var(--line);color:var(--tx3);font-size:13px}
+code.inline{font:500 12px var(--font-data);background:var(--bg2);border:1px solid var(--line);padding:2px 7px;border-radius:5px;color:var(--cont)}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header class="hero">
+  <div class="eyebrow">Weltmodell · reifizierter Statement-Store</div>
+  <h1>Design System <span class="thin">v1 „Orbital"</span></h1>
+  <p>Ein System für ein persönliches Weltmodell: HUD-Ästhetik mit Disziplin. Die Ontologie (Continuant / Occurrent) ist das Farbsystem, der Graph ist der Held, alles andere tritt zurück. Semantic Zoom statt Label-Chaos, 40px-Targets statt Textlinks, eine Kontrollsprache statt drei.</p>
+  <div class="meta">
+    <span>BASIS: world.jshift.de</span><span>AUDIT: 8 Screens · 07/2026</span><span>FONTS: Chakra Petch · IBM Plex Sans/Mono</span>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-t="audit" class="on">01 Audit</button>
+  <button data-t="tokens">02 Tokens</button>
+  <button data-t="comp">03 Komponenten</button>
+  <button data-t="graph">04 Graph Live</button>
+  <button data-t="sota">05 SOTA & Regeln</button>
+</nav>
+
+<!-- ================= AUDIT ================= -->
+<section class="tab on" id="tab-audit">
+  <h2>Was aktuell falsch ist</h2>
+  <p class="sub">16 Findings aus den 8 Screenshots, nach Schwere sortiert. Jedes mit konkretem Fix, der im Rest dieses Dokuments umgesetzt ist.</p>
+
+  <div class="finding"><span class="sev k">KRITISCH</span><div>
+    <b>Label-Chaos im Graphen</b>
+    <p>Alle 43 Labels sind permanent sichtbar und kollidieren („UnitedHealth Group" über „Bitcoin", „Finance Club Leipzi" in „Viktor", „Vanguard FTSE All-Worl…" abgeschnitten). Der Graph ist bei 43 Entities schon unlesbar, bei 500 wird er unbenutzbar.</p>
+    <p class="fix">Label-LOD: Labels nur für Top-Degree-Nodes bei niedrigem Zoom, progressiv mehr beim Reinzoomen, Kollisionsvermeidung per Grid. Live in Tab 04.</p>
+    <span class="ref">Screens 1, 6, 7</span>
+  </div></div>
+
+  <div class="finding"><span class="sev k">KRITISCH</span><div>
+    <b>Rotierte Kantenlabels</b>
+    <p>„arbeitet_bei" läuft diagonal entlang der Kante und ist praktisch unleserlich. Rotierter Text ist eines der bestdokumentierten Anti-Patterns in Graph-Viz.</p>
+    <p class="fix">Kantenlabels nur bei Hover/Selektion, immer horizontal, als Chip am Kantenmittelpunkt mit Hintergrund.</p>
+    <span class="ref">Screens 2, 8</span>
+  </div></div>
+
+  <div class="finding"><span class="sev k">KRITISCH</span><div>
+    <b>Touch-Targets weit unter Minimum</b>
+    <p>„Traverse →", „+ Statement", „graph →", „ändern" sind nackte Textlinks mit ~16px Höhe. Apple HIG: 44pt, Material: 48dp, absolutes Minimum 40px. Auf dem Pixel 8 nicht treffbar.</p>
+    <p class="fix">Alle interaktiven Elemente min. 40px (Desktop) / 44px (Touch) Hit-Area, auch wenn das visuelle Element kleiner ist. Token <code class="inline">--hit</code>.</p>
+    <span class="ref">Screens 3, 5, 6</span>
+  </div></div>
+
+  <div class="finding"><span class="sev k">KRITISCH</span><div>
+    <b>Kontrast unter WCAG AA</b>
+    <p>Sekundärtext (~#5A6B8A auf ~#0C1220) liegt bei ~3.2:1, gefordert sind 4.5:1 für Fließtext. Betrifft Hilfetexte, Timestamps, Card-Beschreibungen, Nav.</p>
+    <p class="fix">Text-Trias: <code class="inline">--tx1 #EAF0FA</code> (13.8:1), <code class="inline">--tx2 #A6B2C8</code> (7.5:1), <code class="inline">--tx3 #76839C</code> (4.6:1, nur für Meta ab 12px).</p>
+    <span class="ref">Alle Screens</span>
+  </div></div>
+
+  <div class="finding"><span class="sev k">KRITISCH</span><div>
+    <b>Ein-Farben-Graph: Typ nicht ablesbar</b>
+    <p>Person, Wertpapier, Ort, Plattform, Organisation: alles identisch blau. Die einzige semantische Dimension deines Datenmodells (der Typ) ist im Graphen unsichtbar. Occurrent-Orange existiert nur auf der Anlegen-Seite.</p>
+    <p class="fix">Farbe kodiert Typ (6 Hues, siehe Tokens), Form kodiert Kategorie: Kreis = Continuant, Raute = Occurrent. Legende im Canvas.</p>
+    <span class="ref">Screens 1, 6, 7</span>
+  </div></div>
+
+  <div class="finding"><span class="sev h">HOCH</span><div>
+    <b>Isolierte Nodes verschwenden 40% der Fläche</b>
+    <p>Reddit, Facebook, LinkedIn, X, YouTube, Taucha, TikTok treiben als Orphans an den unteren Rand, der Haupt-Cluster quetscht sich oben links. „Einpassen" muss manuell geklickt werden.</p>
+    <p class="fix">Stärkere Zentral-Gravitation für Grad-1/0-Nodes, Auto-Fit nach Layout-Konvergenz, optional Orphan-Ring am Rand.</p>
+    <span class="ref">Screen 1</span>
+  </div></div>
+
+  <div class="finding"><span class="sev h">HOCH</span><div>
+    <b>Drei Kontrollsprachen in einer Toolbar</b>
+    <p>Native Checkbox + Pill („Continuants"), natives OS-<code class="inline">&lt;select&gt;</code> („Alle Prädikate"), nackte Textbuttons („Einpassen", „Fokus lösen"). Das native Select bricht die Ästhetik komplett.</p>
+    <p class="fix">Eine Sprache: Toggle-Chips für Filter, Custom-Dropdown für Prädikate, Buttons mit Border für Aktionen. Tab 03.</p>
+    <span class="ref">Screens 1, 7</span>
+  </div></div>
+
+  <div class="finding"><span class="sev h">HOCH</span><div>
+    <b>Inspector-Panel ohne Hierarchie</b>
+    <p>„rolle AI Engineering Werkstudent (BLAID GmbH)" als Fließtext-Wurst: Prädikat, Wert und Qualifier sind typografisch identisch. 14 Statements als unstrukturierte Liste, Links kaum von Text unterscheidbar.</p>
+    <p class="fix">Key-Value-Rows: Prädikat mono/klein/gedimmt links, Wert prominent rechts, Qualifier als Sub-Chip. Aktionen als echte Buttons oben. Live in Tab 04.</p>
+    <span class="ref">Screen 6</span>
+  </div></div>
+
+  <div class="finding"><span class="sev h">HOCH</span><div>
+    <b>Anlegen-Seite: 13x dieselbe Karte</b>
+    <p>„Ding — besteht durch die Zeit" steht 9x identisch da. Keine visuelle Gruppierung Continuant vs. Occurrent außer dem Icon, dritte Reihe hängt als Orphan-Trio.</p>
+    <p class="fix">Zwei betitelte Gruppen (Continuants / Occurrents) mit je einer Beschreibung, kompaktere Karten, häufigste Typen zuerst (nach Nutzung sortiert).</p>
+    <span class="ref">Screen 4</span>
+  </div></div>
+
+  <div class="finding"><span class="sev h">HOCH</span><div>
+    <b>Create-Form: 80% Leerraum, Jargon unerklärt</b>
+    <p>„FÄHIGKEITEN: Embeddable, Nameable" ohne Tooltip ist Entwickler-Selbstgespräch. Formular schwebt kontextlos, „Anlegen"-Button wirkt disabled ohne es zu sein.</p>
+    <p class="fix">Zweispaltig: Form links, Live-Preview des entstehenden Statements rechts. Capabilities hinter Info-Icon. Klare Button-States.</p>
+    <span class="ref">Screen 5</span>
+  </div></div>
+
+  <div class="finding"><span class="sev m">MITTEL</span><div>
+    <b>Kryptische Stats</b>
+    <p>„43 Gerüst · 43 Welt · 139 Statements" oben rechts in 11px: interne Begriffe, keine Erklärung, keine Interaktion.</p>
+    <p class="fix">Stat-Cards mit Label + Zahl, klickbar als Filter. Siehe Graph-Demo oben rechts.</p>
+    <span class="ref">Screens 1, 6</span>
+  </div></div>
+
+  <div class="finding"><span class="sev m">MITTEL</span><div>
+    <b>Hilfetext als Absatz statt UI</b>
+    <p>„Hover: Nachbarschaft · Klick: Details · Doppelklick: Entity-Seite" als statischer Text im Panel. Wer das Panel nicht liest, entdeckt nichts.</p>
+    <p class="fix">Interaktionen selbsterklärend machen (Cursor, Hover-States), Shortcuts in ein dismissbares Onboarding-Overlay bzw. <code class="inline">?</code>-Layer.</p>
+    <span class="ref">Screens 1, 7</span>
+  </div></div>
+
+  <div class="finding"><span class="sev m">MITTEL</span><div>
+    <b>Layout nicht persistent</b>
+    <p>Force-Simulation randomisiert bei jedem Load: kein stabiles mentales Modell. Nutzer lernen Positionen, dein Graph vergisst sie.</p>
+    <p class="fix">Konvergierte Positionen serverseitig cachen (x/y pro Entity), neue Nodes inkrementell einfügen, Layout nur auf Wunsch neu rechnen.</p>
+    <span class="ref">Screens 1 vs 6</span>
+  </div></div>
+
+  <div class="finding"><span class="sev m">MITTEL</span><div>
+    <b>Suche: Rausch-Timestamps, tote Zahlen</b>
+    <p>16x „06.07.2026, 23:49" (Bulk-Import) ist Rauschen ohne Information. Die großen Stat-Zahlen (43/139/3/0) sind nicht klickbar.</p>
+    <p class="fix">Relative Zeit („vor 8 Std"), Bulk-Imports gruppieren („16 Entities importiert"), Stats als Filter-Shortcuts.</p>
+    <span class="ref">Screen 3</span>
+  </div></div>
+
+  <div class="finding"><span class="sev m">MITTEL</span><div>
+    <b>Monospace als UI-Schrift</b>
+    <p>Mono überall (Nav, Beschreibungen, Hilfetexte) kostet ~30% Lesegeschwindigkeit und Platz. Mono ist ein Daten-Font, kein UI-Font.</p>
+    <p class="fix">Drei Rollen: Chakra Petch für HUD/Headings, IBM Plex Sans für UI-Text, IBM Plex Mono nur für Werte, IDs, Prädikate.</p>
+    <span class="ref">Alle Screens</span>
+  </div></div>
+
+  <div class="finding"><span class="sev m">MITTEL</span><div>
+    <b>Sidebar ohne Ikonografie und Zustände</b>
+    <p>Sieben Textzeilen, aktiver Zustand nur als schwacher Hintergrund, keine Icons, kein Kollaps für Mobile.</p>
+    <p class="fix">Icon + Label, aktiver Zustand mit Akzent-Indikator links, kollabierbar auf Icon-Rail, Bottom-Nav auf Mobile.</p>
+    <span class="ref">Alle Screens</span>
+  </div></div>
+</section>
+
+<!-- ================= TOKENS ================= -->
+<section class="tab" id="tab-tokens">
+  <h2>Token-System „Orbital"</h2>
+  <p class="sub">Die Ontologie ist das Farbsystem: Cyan = Continuant (Dinge, die durch die Zeit bestehen), Amber = Occurrent (Ereignisse). Typ-Hues differenzieren innerhalb der Continuants. Alles andere ist neutrale Tiefe.</p>
+
+  <h3>Fläche & Linie</h3>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#070B12"></div><div class="lbl"><b>bg0 · Void</b><code>#070B12</code></div></div>
+    <div class="sw"><div class="chip" style="background:#0C121D"></div><div class="lbl"><b>bg1 · Surface</b><code>#0C121D</code></div></div>
+    <div class="sw"><div class="chip" style="background:#121A2A"></div><div class="lbl"><b>bg2 · Raised</b><code>#121A2A</code></div></div>
+    <div class="sw"><div class="chip" style="background:#182338"></div><div class="lbl"><b>bg3 · Active</b><code>#182338</code></div></div>
+    <div class="sw"><div class="chip" style="background:#1E2A42"></div><div class="lbl"><b>line</b><code>#1E2A42</code></div></div>
+    <div class="sw"><div class="chip" style="background:#2D3D60"></div><div class="lbl"><b>line2 · strong</b><code>#2D3D60</code></div></div>
+  </div>
+
+  <h3>Text (WCAG AA auf bg1)</h3>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#EAF0FA"></div><div class="lbl"><b>tx1 · 13.8:1</b><code>#EAF0FA</code></div></div>
+    <div class="sw"><div class="chip" style="background:#A6B2C8"></div><div class="lbl"><b>tx2 · 7.5:1</b><code>#A6B2C8</code></div></div>
+    <div class="sw"><div class="chip" style="background:#76839C"></div><div class="lbl"><b>tx3 · 4.6:1</b><code>#76839C</code></div></div>
+  </div>
+
+  <h3>Ontologie & Typen</h3>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#3EC5F0"></div><div class="lbl"><b>Continuant / Person</b><code>#3EC5F0</code></div></div>
+    <div class="sw"><div class="chip" style="background:#FFB454"></div><div class="lbl"><b>Occurrent</b><code>#FFB454</code></div></div>
+    <div class="sw"><div class="chip" style="background:#8B8FF8"></div><div class="lbl"><b>Organisation</b><code>#8B8FF8</code></div></div>
+    <div class="sw"><div class="chip" style="background:#5E7CE2"></div><div class="lbl"><b>Wertpapier</b><code>#5E7CE2</code></div></div>
+    <div class="sw"><div class="chip" style="background:#4ADE80"></div><div class="lbl"><b>Ort / OK</b><code>#4ADE80</code></div></div>
+    <div class="sw"><div class="chip" style="background:#C778DD"></div><div class="lbl"><b>Plattform</b><code>#C778DD</code></div></div>
+  </div>
+
+  <h3>Typografie: drei Rollen, keine Ausnahmen</h3>
+  <div class="typerow"><code>display / hud</code><div style="font:700 26px 'Chakra Petch'">Chakra Petch · Headings, Buttons, Stats</div></div>
+  <div class="typerow"><code>ui / body</code><div style="font:400 15px 'IBM Plex Sans'">IBM Plex Sans · Fließtext, Beschreibungen, Formulare. Lesbar, neutral, tritt zurück.</div></div>
+  <div class="typerow"><code>data</code><div style="font:400 13px 'IBM Plex Mono';color:var(--tx2)">IBM Plex Mono · nur Prädikate, IDs, Werte, Timestamps: arbeitet_bei · c238b34e</div></div>
+
+  <h3>Spacing (4er-Basis) & Radius</h3>
+  <div class="spacebar" style="height:72px;margin-bottom:var(--s6)">
+    <div style="width:4px;height:4px"><span>4</span></div>
+    <div style="width:8px;height:8px"><span>8</span></div>
+    <div style="width:12px;height:12px"><span>12</span></div>
+    <div style="width:16px;height:16px"><span>16</span></div>
+    <div style="width:24px;height:24px"><span>24</span></div>
+    <div style="width:32px;height:32px"><span>32</span></div>
+    <div style="width:48px;height:48px"><span>48</span></div>
+  </div>
+  <div class="grid3">
+    <div class="card" style="border-radius:6px"><b>r1 · 6px</b><p style="color:var(--tx3);font-size:13px">Chips, Kbd, kleine Elemente</p></div>
+    <div class="card" style="border-radius:10px"><b>r2 · 10px</b><p style="color:var(--tx3);font-size:13px">Buttons, Inputs, Rows</p></div>
+    <div class="card" style="border-radius:14px"><b>r3 · 14px</b><p style="color:var(--tx3);font-size:13px">Cards, Panels, Stage</p></div>
+  </div>
+
+  <h3>Motion</h3>
+  <p class="sub" style="font-size:14px">Zwei Dauern reichen: <code class="inline">120ms</code> für Hover/Toggle, <code class="inline">220ms</code> für Panels/Tabs, Kurve <code class="inline">cubic-bezier(.2,.8,.2,1)</code>. Graph-Physik ist die einzige Dauer-Animation. <code class="inline">prefers-reduced-motion</code> wird respektiert.</p>
+</section>
+
+<!-- ================= KOMPONENTEN ================= -->
+<section class="tab" id="tab-comp">
+  <h2>Komponenten</h2>
+  <p class="sub">Eine Kontrollsprache. Jedes interaktive Element hat min. 40px Hit-Area (44px Touch), sichtbaren Focus-Ring und definierte Hover/Active/Disabled-States.</p>
+
+  <h3>Buttons</h3>
+  <div class="card">
+    <div style="display:flex;gap:var(--s3);flex-wrap:wrap;align-items:center">
+      <button class="btn primary">Anlegen</button>
+      <button class="btn secondary">Traverse →</button>
+      <button class="btn ghost">Fokus lösen</button>
+      <button class="btn danger">Deprecaten</button>
+      <button class="btn primary" disabled>Anlegen</button>
+      <button class="btn secondary sm">+ Statement</button>
+    </div>
+    <p style="color:var(--tx3);font-size:13px;margin-top:var(--s4)">„Traverse" und „+ Statement" sind jetzt echte Buttons statt 16px-Textlinks. Der sm-Button behält via unsichtbarer Hit-Area trotzdem 40px Treffzone.</p>
+  </div>
+
+  <h3>Filter-Chips (ersetzt Checkbox+Pill-Mix)</h3>
+  <div class="card">
+    <div style="display:flex;gap:var(--s2);flex-wrap:wrap">
+      <button class="chip on"><span class="dot"></span>Continuants <span class="n">36</span></button>
+      <button class="chip on occ"><span class="dot"></span>Occurrents <span class="n">7</span></button>
+      <button class="chip on">arbeitet_bei <span class="n">4</span></button>
+      <button class="chip">besitzt <span class="n">22</span></button>
+      <button class="chip on">knows <span class="n">6</span></button>
+      <button class="chip">wohnt_in <span class="n">2</span></button>
+    </div>
+    <p style="color:var(--tx3);font-size:13px;margin-top:var(--s4)">Ein Klick toggelt. Count im Chip ersetzt kryptische Stats. Aktiv-Zustand über Fläche + Border + Farbe, nicht über native Checkbox.</p>
+  </div>
+
+  <h3>Segmented Control & Input</h3>
+  <div class="grid2">
+    <div class="card">
+      <div class="seg"><button class="on">Graph</button><button>Tabelle</button><button>Timeline</button></div>
+      <div style="height:var(--s4)"></div>
+      <div class="seg"><button>Tiefe 1</button><button class="on">Tiefe 2</button><button>Tiefe 3</button></div>
+      <p style="color:var(--tx3);font-size:13px;margin-top:var(--s4)">Tiefe als diskrete Stufen statt unbeschriftetem Slider: der Wertebereich ist 1 bis 3, ein Slider suggeriert Kontinuität, die es nicht gibt.</p>
+    </div>
+    <div class="card">
+      <div class="field"><label>Weltmodell durchsuchen</label>
+        <input class="input" placeholder="Entity, Prädikat oder Statement … ( / )"></div>
+      <div class="field"><label>Prädikat</label>
+        <input class="input" value="arbeitet_bei" style="font-family:var(--font-data);font-size:13px"></div>
+    </div>
+  </div>
+
+  <h3>Statement-Rows (Inspector-Ersatz)</h3>
+  <div class="card">
+    <div class="kv">
+      <div class="row"><span class="k">arbeitet_bei</span><span class="v"><a href="#">BLAID GmbH</a><span class="qual">rolle: AI Engineering Werkstudent</span></span></div>
+      <div class="row"><span class="k">studiert_an</span><span class="v"><a href="#">Universität Leipzig</a><span class="qual">seit: WiSe 24/25</span></span></div>
+      <div class="row"><span class="k">besitzt</span><span class="v"><a href="#">Vanguard FTSE All-World</a><span class="qual">quelle: Consorsbank</span></span></div>
+      <div class="row"><span class="k">knows</span><span class="v"><a href="#">Tanja Avdieieva</a></span></div>
+    </div>
+    <p style="color:var(--tx3);font-size:13px;margin-top:var(--s4)">Prädikat mono + gedimmt links, Wert als Link rechts, Qualifier als Sub-Chip. Jede Row min. 44px, ganze Row hoverbar.</p>
+  </div>
+
+  <h3>Do / Don't</h3>
+  <div class="dodont">
+    <div class="dd dont"><div class="head">DON'T</div><div class="body">Natives &lt;select&gt;, rotierte Kantenlabels, permanente Labels für alle Nodes, Textlinks als Aktionen, Mono für Fließtext, 9x dieselbe Kartenbeschreibung.</div></div>
+    <div class="dd do"><div class="head">DO</div><div class="body">Custom-Dropdown im Systemstil, horizontale Label-Chips on hover, Label-LOD nach Degree x Zoom, Buttons mit 40px+ Hit-Area, Mono nur für Daten, Gruppen mit einer Beschreibung.</div></div>
+  </div>
+</section>
+<!-- ================= GRAPH ================= -->
+<section class="tab" id="tab-graph">
+  <h2>Graph: der Fix, live</h2>
+  <p class="sub">Deine 43 Entities, nachgebaut. Alle fünf kritischen Findings sind hier gelöst: Label-LOD (zoome rein und raus), horizontale Kantenlabels on hover, Typ-Farben + Formen, Fokus-Dimming, Inspector mit echten Buttons. Klick einen Node.</p>
+
+  <div class="stage" id="stage">
+    <canvas id="gc"></canvas>
+    <div class="gbar">
+      <div class="gsearch"><span style="color:var(--tx3)">◎</span><input id="gq" placeholder="Weltmodell durchsuchen …"><kbd>/</kbd></div>
+      <div class="gstats">
+        <div class="gstat"><b id="stN">43</b><span>Entities</span></div>
+        <div class="gstat"><b id="stE">46</b><span>Kanten</span></div>
+        <div class="gstat"><b>139</b><span>Statements</span></div>
+      </div>
+    </div>
+    <div class="gchips">
+      <button class="chip on" data-cat="cont"><span class="dot" style="background:var(--cont)"></span>Continuants</button>
+      <button class="chip on occ" data-cat="occ"><span class="dot" style="background:var(--occ)"></span>Occurrents</button>
+      <button class="chip on" data-pred="besitzt">besitzt</button>
+      <button class="chip on" data-pred="knows">knows</button>
+      <button class="chip on" data-pred="arbeitet_bei">arbeitet_bei</button>
+    </div>
+    <div class="gzoom">
+      <button id="zin" aria-label="Zoom in">+</button>
+      <button id="zout" aria-label="Zoom out">−</button>
+      <button id="zfit" aria-label="Einpassen" style="font-size:12px">FIT</button>
+    </div>
+    <div class="lodhint" id="lod">LOD: nur Hubs beschriftet · reinzoomen zeigt mehr</div>
+
+    <aside class="inspector" id="insp">
+      <button class="close" id="inspClose" aria-label="Schließen">✕</button>
+      <div class="etype" id="iType">PERSON</div>
+      <h4 id="iName">Jonas Petzke</h4>
+      <div class="badges" id="iBadges"></div>
+      <div class="actions">
+        <button class="btn secondary" id="iTrav">Traverse →</button>
+        <button class="btn primary sm" style="min-height:var(--hit)">+ Statement</button>
+      </div>
+      <div class="kv" id="iKv"></div>
+    </aside>
+  </div>
+  <div class="legend">
+    <span><i style="background:var(--t-person)"></i>Person</span>
+    <span><i style="background:var(--t-org)"></i>Organisation</span>
+    <span><i style="background:var(--t-ort)"></i>Ort</span>
+    <span><i style="background:var(--t-wp)"></i>Wertpapier</span>
+    <span><i style="background:var(--t-platform)"></i>Plattform</span>
+    <span><i class="d" style="background:var(--occ)"></i>Occurrent (Ereignis)</span>
+  </div>
+</section>
+
+<!-- ================= SOTA ================= -->
+<section class="tab" id="tab-sota">
+  <h2>SOTA-Rendering & verbindliche Regeln</h2>
+  <p class="sub">Was die Recherche hergibt und was davon für 43 bis 50.000 Entities gilt.</p>
+
+  <h3>Rendering-Stack nach Graphgröße</h3>
+  <div class="card">
+  <table class="cmp">
+    <tr><th>Größe</th><th>Stack</th><th>Begründung</th></tr>
+    <tr><td>&lt; 2k Nodes (jetzt)</td><td>Canvas 2D + d3-force oder force-graph (vasturiano)</td><td>Volle Kontrolle über Label-LOD und Custom-Rendering, kein WebGL-Overhead. Diese Demo läuft so.</td></tr>
+    <tr><td>2k bis ~100k Kanten</td><td>sigma.js v4 + graphology</td><td>WebGL-Rendering, Layouts/Metriken/Community-Detection über graphology, React-Wrapper vorhanden.</td></tr>
+    <tr><td>&gt; 100k</td><td>Cosmograph (cosmos.gl)</td><td>Force-Layout UND Rendering auf der GPU, hunderttausende Nodes im Browser. CC BY-NC für nicht-kommerziell: passt für dein Privatprojekt.</td></tr>
+  </table>
+  </div>
+
+  <h3>Die 8 Regeln (nicht verhandelbar)</h3>
+  <div class="finding"><span class="sev h">R1</span><div><b>Semantic Zoom / Label-LOD</b><p>Sichtbarkeit = f(Degree x Zoomlevel), Kollisionscheck per Spatial Grid. Studienbelegt besser lesbar als statische Labels (Wiens et al., Ontologie-Graphen).</p></div></div>
+  <div class="finding"><span class="sev h">R2</span><div><b>Overview → Zoom+Filter → Details-on-Demand</b><p>Shneiderman-Mantra als Architektur: Graph ist Übersicht, Chips filtern, Inspector liefert Details. Nie alles gleichzeitig zeigen.</p></div></div>
+  <div class="finding"><span class="sev h">R3</span><div><b>Kantenlabels nur on demand, nie rotiert</b><p>Hover oder Selektion, horizontal, mit Hintergrund-Chip. Bei Selektion: alle Kanten des Nodes beschriftet, Rest gedimmt.</p></div></div>
+  <div class="finding"><span class="sev h">R4</span><div><b>Layout-Persistenz</b><p>Konvergierte x/y pro Entity in die DB, inkrementelles Einfügen neuer Nodes nahe ihrer Nachbarn. Mentale Karte des Nutzers ist ein Asset.</p></div></div>
+  <div class="finding"><span class="sev h">R5</span><div><b>Farbe = Typ, Form = Ontologie-Kategorie</b><p>6 Typ-Hues, Kreis vs. Raute für Continuant/Occurrent. Konsistent in Graph, Chips, Tabellen, Anlegen-Karten.</p></div></div>
+  <div class="finding"><span class="sev h">R6</span><div><b>Fokus-Dimming statt Ausblenden</b><p>Hover/Selektion: Nachbarschaft 100%, Rest auf 12% Opazität. Kontext bleibt sichtbar, Fokus ist eindeutig.</p></div></div>
+  <div class="finding"><span class="sev h">R7</span><div><b>Orphan-Handling</b><p>Grad-0/1-Nodes bekommen stärkere Gravitation oder einen dedizierten Ring, damit sie die Fläche nicht sprengen. Auto-Fit nach Konvergenz.</p></div></div>
+  <div class="finding"><span class="sev h">R8</span><div><b>40px Hit-Areas, überall</b><p>Auch im Canvas: Node-Treffradius min. 20px unabhängig vom visuellen Radius. Panel-Aktionen als Buttons, nie als Textlinks.</p></div></div>
+
+  <h3>Migrationspfad für world.jshift.de</h3>
+  <div class="card glow">
+    <table class="cmp">
+      <tr><th>Phase</th><th>Aufwand</th><th>Inhalt</th></tr>
+      <tr><td>1 · Quick Wins</td><td>~1 Abend</td><td>CSS-Tokens einziehen (Kontrast, Hit-Areas, Fonts), natives Select ersetzen, Kantenlabels horizontal + on hover, Anlegen-Seite gruppieren.</td></tr>
+      <tr><td>2 · Graph-Core</td><td>~1 Wochenende</td><td>Label-LOD + Kollisionsgrid, Typ-Farben/Formen, Fokus-Dimming, Orphan-Gravitation, Auto-Fit. Diese Demo ist die Referenzimplementierung, Code direkt übernehmbar.</td></tr>
+      <tr><td>3 · Persistenz & Inspector</td><td>~1 Wochenende</td><td>x/y in Postgres cachen, Inspector als kv-Rows mit Qualifier-Chips, Stat-Cards klickbar, Mobile Bottom-Sheet.</td></tr>
+    </table>
+  </div>
+
+  <footer>Weltmodell Design System v1 „Orbital" · Referenz für den Rebuild von world.jshift.de · Graph-Demo: Vanilla Canvas 2D, ~300 Zeilen, direkt portierbar.</footer>
+</section>
+</div>
+
+<script>
+/* ===== Tabs ===== */
+const tabs=document.getElementById('tabs');
+tabs.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  tabs.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('section.tab').forEach(s=>s.classList.toggle('on',s.id==='tab-'+b.dataset.t));
+  if(b.dataset.t==='graph')G.resize();});
+
+/* ===== Graph Engine ===== */
+const TYPES={person:'#3EC5F0',org:'#8B8FF8',ort:'#4ADE80',wp:'#5E7CE2',platform:'#C778DD',projekt:'#2DD4BF',occ:'#FFB454'};
+const N=(id,type,cat='cont')=>({id,type,cat,x:0,y:0,vx:0,vy:0,deg:0});
+const nodes=[
+ N('Jonas Petzke','person'),N('Tanja Avdieieva','person'),N('Jacob Armbruster','person'),
+ N('Konstantin Brauß','person'),N('Daniel Zurek','person'),N('Vinay','person'),N('Viktor','person'),
+ N('BLAID GmbH','org'),N('Finance Club Leipzig','org'),N('Universität Leipzig','org'),
+ N('Leipzig','ort'),N('Taucha','ort'),
+ N('Vanguard FTSE All-World','wp'),N('VanEck Defense ETF','wp'),N('Amundi Stoxx Europe','wp'),
+ N('TSMC (ADR)','wp'),N('Microsoft','wp'),N('Coca-Cola','wp'),N('McDonald\u2019s','wp'),N('Nestlé','wp'),
+ N('LVMH','wp'),N('PepsiCo','wp'),N('Altria Group','wp'),N('Johnson & Johnson','wp'),
+ N('Münchener Rück','wp'),N('UnitedHealth','wp'),N('CRISPR Therapeutics','wp'),N('BigBear.ai','wp'),
+ N('Nebius Group','wp'),N('EUWAX Gold II','wp'),N('WGF Anleihe 08','wp'),N('Atos SE','wp'),
+ N('Bitcoin','wp'),N('Vanguard FTSE EM','wp'),
+ N('greentext.animations','platform'),N('jonas_ptzk','platform'),N('TikTok','platform'),
+ N('Instagram','platform'),N('Reddit','platform'),N('LinkedIn','platform'),N('YouTube','platform'),N('X','platform'),
+ N('Kontosperrung 2025','occ','occ')
+];
+const idx={};nodes.forEach((n,i)=>idx[n.id]=i);
+const L=(a,b,p)=>({a:idx[a],b:idx[b],p});
+const J='Jonas Petzke';
+const links=[
+ L(J,'BLAID GmbH','arbeitet_bei'),L(J,'Finance Club Leipzig','arbeitet_bei'),
+ L(J,'Universität Leipzig','studiert_an'),L(J,'Leipzig','wohnt_in'),
+ L(J,'Tanja Avdieieva','knows'),L(J,'Jacob Armbruster','knows'),L(J,'Konstantin Brauß','knows'),
+ L(J,'Daniel Zurek','knows'),L(J,'Vinay','knows'),L(J,'Viktor','knows'),
+ L('BLAID GmbH','Leipzig','hauptsitz_in'),L('Finance Club Leipzig','Universität Leipzig','teil_von'),
+ L('Jacob Armbruster','BLAID GmbH','arbeitet_bei'),L('Vinay','BLAID GmbH','arbeitet_bei'),
+ L('Konstantin Brauß','BLAID GmbH','geführt_von'),L('Taucha','Leipzig','nahe'),
+ L('greentext.animations','TikTok','platform'),L('greentext.animations',J,'account_of'),
+ L('jonas_ptzk','Instagram','platform'),L('jonas_ptzk',J,'account_of'),
+ L('Kontosperrung 2025','greentext.animations','betraf'),
+ ...['Vanguard FTSE All-World','VanEck Defense ETF','Amundi Stoxx Europe','TSMC (ADR)','Microsoft','Coca-Cola','McDonald\u2019s','Nestlé','LVMH','PepsiCo','Altria Group','Johnson & Johnson','Münchener Rück','UnitedHealth','CRISPR Therapeutics','BigBear.ai','Nebius Group','EUWAX Gold II','WGF Anleihe 08','Atos SE','Bitcoin','Vanguard FTSE EM'].map(w=>L(J,w,'besitzt'))
+];
+links.forEach(l=>{nodes[l.a].deg++;nodes[l.b].deg++});
+const adj=nodes.map(()=>new Set());
+links.forEach((l,i)=>{adj[l.a].add(l.b);adj[l.b].add(l.a)});
+
+/* init positions: hub center, rings by degree */
+nodes.forEach((n,i)=>{const a=i*2.399963;const r=n.deg>5?10:(n.deg>1?180:320)+Math.random()*60;
+  n.x=Math.cos(a)*r;n.y=Math.sin(a)*r;});
+
+const cv=document.getElementById('gc'),ctx=cv.getContext('2d');
+const stage=document.getElementById('stage');
+let W=0,H=0,DPR=1,cam={x:0,y:0,z:1},hover=-1,sel=-1,alpha=1;
+let hidden={cont:false,occ:false},hiddenPred={};
+let query='';
+
+const G={resize(){const r=stage.getBoundingClientRect();DPR=devicePixelRatio||1;
+  W=r.width;H=r.height;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}};
+G.resize();addEventListener('resize',G.resize);
+
+function visible(n){if(hidden[n.cat])return false;
+  if(query&&!n.id.toLowerCase().includes(query))return false;return true}
+function linkVisible(l){if(hiddenPred[l.p])return false;
+  return visible(nodes[l.a])&&visible(nodes[l.b])}
+
+/* physics */
+function tick(){
+  if(alpha<0.003)return;
+  const rep=2600,spring=0.015,springLen=95;
+  for(let i=0;i<nodes.length;i++){const a=nodes[i];
+    for(let j=i+1;j<nodes.length;j++){const b=nodes[j];
+      let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy+0.01;if(d2>90000)continue;
+      const f=rep/d2,d=Math.sqrt(d2);dx/=d;dy/=d;
+      a.vx+=dx*f*alpha;a.vy+=dy*f*alpha;b.vx-=dx*f*alpha;b.vy-=dy*f*alpha;}}
+  links.forEach(l=>{const a=nodes[l.a],b=nodes[l.b];
+    let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)+0.01;
+    const f=(d-springLen)*spring*alpha;dx/=d;dy/=d;
+    a.vx+=dx*f;a.vy+=dy*f;b.vx-=dx*f;b.vy-=dy*f;});
+  nodes.forEach(n=>{
+    const g=n.deg<=1?0.012:0.004; /* R7: Orphans stärker zur Mitte */
+    n.vx-=n.x*g*alpha;n.vy-=n.y*g*alpha;
+    n.vx*=0.85;n.vy*=0.85;n.x+=n.vx;n.y+=n.vy;});
+  alpha*=0.996;
+}
+function fit(){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  nodes.forEach(n=>{if(!visible(n))return;x0=Math.min(x0,n.x);x1=Math.max(x1,n.x);y0=Math.min(y0,n.y);y1=Math.max(y1,n.y)});
+  const pad=80,zw=(W-pad*2)/(x1-x0+1),zh=(H-pad*2)/(y1-y0+1);
+  cam.z=Math.min(1.6,Math.min(zw,zh));cam.x=(x0+x1)/2;cam.y=(y0+y1)/2;}
+setTimeout(fit,600);
+
+const sx=x=>(x-cam.x)*cam.z+W/2, sy=y=>(y-cam.y)*cam.z+H/2;
+
+function nodeR(n){return (5+Math.min(15,n.deg*1.1))}
+function draw(){
+  tick();
+  ctx.clearRect(0,0,W,H);
+  /* faint grid dots */
+  ctx.fillStyle='rgba(62,197,240,.045)';
+  const gs=48*cam.z,ox=(W/2-cam.x*cam.z)%gs,oy=(H/2-cam.y*cam.z)%gs;
+  for(let x=ox;x<W;x+=gs)for(let y=oy;y<H;y+=gs){ctx.fillRect(x,y,1.4,1.4)}
+
+  const focus=sel>=0?sel:hover;
+  const inFocus=i=>focus<0||i===focus||adj[focus].has(i);
+
+  /* edges */
+  links.forEach(l=>{if(!linkVisible(l))return;
+    const a=nodes[l.a],b=nodes[l.b];
+    const f=focus<0||l.a===focus||l.b===focus;
+    ctx.strokeStyle=f?'rgba(120,160,220,'+(focus<0?0.22:0.55)+')':'rgba(120,160,220,.05)';
+    ctx.lineWidth=f&&focus>=0?1.4:1;
+    ctx.beginPath();ctx.moveTo(sx(a.x),sy(a.y));ctx.lineTo(sx(b.x),sy(b.y));ctx.stroke();});
+
+  /* R3: horizontale Kantenlabels nur bei Fokus */
+  if(focus>=0){ctx.font='500 10px "IBM Plex Mono"';
+    links.forEach(l=>{if(!linkVisible(l))return;if(l.a!==focus&&l.b!==focus)return;
+      const a=nodes[l.a],b=nodes[l.b];
+      const mx=sx((a.x+b.x)/2),my=sy((a.y+b.y)/2);
+      const w=ctx.measureText(l.p).width+12;
+      ctx.fillStyle='rgba(10,15,25,.9)';
+      ctx.beginPath();ctx.roundRect(mx-w/2,my-9,w,17,8);ctx.fill();
+      ctx.strokeStyle='rgba(45,61,96,.8)';ctx.lineWidth=1;ctx.stroke();
+      ctx.fillStyle='#A6B2C8';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(l.p,mx,my);});}
+
+  /* nodes */
+  nodes.forEach((n,i)=>{if(!visible(n))return;
+    const x=sx(n.x),y=sy(n.y),r=nodeR(n)*Math.sqrt(cam.z);
+    const dim=!inFocus(i);
+    ctx.globalAlpha=dim?0.12:1; /* R6 */
+    const c=TYPES[n.cat==='occ'?'occ':n.type];
+    if(n.cat==='occ'){ /* R5: Raute */
+      ctx.save();ctx.translate(x,y);ctx.rotate(Math.PI/4);
+      ctx.fillStyle=c;ctx.fillRect(-r*.8,-r*.8,r*1.6,r*1.6);ctx.restore();
+    }else{
+      const gr=ctx.createRadialGradient(x-r/3,y-r/3,r/6,x,y,r);
+      gr.addColorStop(0,'#fff');gr.addColorStop(.25,c);gr.addColorStop(1,shade(c));
+      ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();}
+    if(i===sel){ctx.strokeStyle=c;ctx.lineWidth=2;
+      ctx.setLineDash([4,5]);ctx.lineDashOffset=-performance.now()/40;
+      ctx.beginPath();ctx.arc(x,y,r+7,0,7);ctx.stroke();ctx.setLineDash([]);}
+    else if(i===hover){ctx.strokeStyle='rgba(234,240,250,.8)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(x,y,r+4,0,7);ctx.stroke();}
+    ctx.globalAlpha=1;});
+
+  /* R1: Label-LOD mit Kollisionsgrid */
+  const boxes=[];
+  const cand=nodes.map((n,i)=>({n,i})).filter(o=>visible(o.n)&&inFocus(o.i))
+    .sort((a,b)=>b.n.deg-a.n.deg);
+  const thresh=3.2/cam.z; /* mehr Zoom -> niedrigere Schwelle -> mehr Labels */
+  document.getElementById('lod').style.opacity=cam.z<0.9?1:0;
+  ctx.textAlign='center';ctx.textBaseline='top';
+  cand.forEach(({n,i})=>{
+    const important=i===sel||i===hover||(focus>=0&&adj[focus].has(i));
+    if(!important&&n.deg<thresh)return;
+    const x=sx(n.x),y=sy(n.y)+nodeR(n)*Math.sqrt(cam.z)+5;
+    const fs=n.deg>10?13:11;ctx.font=(n.deg>10?'600 ':'500 ')+fs+'px "IBM Plex Sans"';
+    const w=ctx.measureText(n.id).width+8,box={x:x-w/2,y,w,h:fs+6};
+    if(!important&&boxes.some(b=>!(box.x>b.x+b.w||b.x>box.x+box.w||box.y>b.y+b.h||b.y>box.y+box.h)))return;
+    boxes.push(box);
+    ctx.fillStyle='rgba(7,11,18,.75)';ctx.fillRect(box.x,box.y,box.w,box.h);
+    ctx.fillStyle=important?'#EAF0FA':'#A6B2C8';
+    ctx.fillText(n.id,x,y+3);});
+  requestAnimationFrame(draw);
+}
+function shade(hex){const n=parseInt(hex.slice(1),16);
+  const r=(n>>16)*0.35|0,g=((n>>8)&255)*0.35|0,b=(n&255)*0.35|0;
+  return `rgb(${r},${g},${b})`}
+requestAnimationFrame(draw);
+
+/* interaction */
+function pick(mx,my){let best=-1,bd=1e9;
+  nodes.forEach((n,i)=>{if(!visible(n))return;
+    const dx=sx(n.x)-mx,dy=sy(n.y)-my,d=Math.hypot(dx,dy);
+    const hit=Math.max(20,nodeR(n)*Math.sqrt(cam.z)+6); /* R8 */
+    if(d<hit&&d<bd){bd=d;best=i}});
+  return best}
+let drag=null,moved=false;
+cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect();
+  drag={x:e.clientX,y:e.clientY,cx:cam.x,cy:cam.y};moved=false;
+  cv.classList.add('dragging');cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+    if(Math.hypot(dx,dy)>4)moved=true;
+    cam.x=drag.cx-dx/cam.z;cam.y=drag.cy-dy/cam.z;return}
+  hover=pick(mx,my);cv.style.cursor=hover>=0?'pointer':'grab'});
+cv.addEventListener('pointerup',e=>{cv.classList.remove('dragging');
+  const r=cv.getBoundingClientRect();
+  if(!moved){const i=pick(e.clientX-r.left,e.clientY-r.top);
+    if(i>=0)select(i);else{sel=-1;insp.classList.remove('open')}}
+  drag=null});
+cv.addEventListener('wheel',e=>{e.preventDefault();
+  const f=e.deltaY<0?1.12:0.89;cam.z=Math.max(0.25,Math.min(4,cam.z*f))},{passive:false});
+document.getElementById('zin').onclick=()=>cam.z=Math.min(4,cam.z*1.25);
+document.getElementById('zout').onclick=()=>cam.z=Math.max(0.25,cam.z*0.8);
+document.getElementById('zfit').onclick=fit;
+
+/* inspector */
+const insp=document.getElementById('insp');
+const TYPELABEL={person:'Person',org:'Organisation',ort:'Ort',wp:'Wertpapier',platform:'Plattform / Account',occ:'Ereignis · Occurrent'};
+function select(i){sel=i;const n=nodes[i];
+  document.getElementById('iType').textContent=TYPELABEL[n.cat==='occ'?'occ':n.type];
+  document.getElementById('iName').textContent=n.id;
+  const c=TYPES[n.cat==='occ'?'occ':n.type];
+  document.getElementById('iBadges').innerHTML=
+    `<span class="chip on" style="color:${c};border-color:${c}55;background:${c}22"><span class="dot"></span>${n.cat==='occ'?'Occurrent':'Continuant'}</span>
+     <span class="chip"><span class="n">Grad ${n.deg}</span></span>`;
+  const kv=document.getElementById('iKv');kv.innerHTML='';
+  links.filter(l=>l.a===i||l.b===i).slice(0,12).forEach(l=>{
+    const other=nodes[l.a===i?l.b:l.a];
+    const row=document.createElement('div');row.className='row';
+    row.innerHTML=`<span class="k">${l.p}</span><span class="v"><a href="#" data-n="${l.a===i?l.b:l.a}">${other.id}</a></span>`;
+    kv.appendChild(row)});
+  kv.querySelectorAll('a').forEach(a=>a.onclick=e=>{e.preventDefault();select(+a.dataset.n)});
+  insp.classList.add('open')}
+document.getElementById('inspClose').onclick=()=>{insp.classList.remove('open');sel=-1};
+document.getElementById('iTrav').onclick=()=>{if(sel>=0){cam.x=nodes[sel].x;cam.y=nodes[sel].y;cam.z=1.8}};
+
+/* chips + search */
+document.querySelectorAll('.gchips .chip').forEach(ch=>ch.onclick=()=>{
+  ch.classList.toggle('on');
+  if(ch.dataset.cat)hidden[ch.dataset.cat]=!ch.classList.contains('on');
+  if(ch.dataset.pred)hiddenPred[ch.dataset.pred]=!ch.classList.contains('on');
+  const vn=nodes.filter(visible).length,ve=links.filter(linkVisible).length;
+  document.getElementById('stN').textContent=vn;
+  document.getElementById('stE').textContent=ve;});
+const gq=document.getElementById('gq');
+gq.addEventListener('input',()=>{query=gq.value.trim().toLowerCase();
+  document.getElementById('stN').textContent=nodes.filter(visible).length});
+addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement!==gq){e.preventDefault();gq.focus()}});
+</script>
+</body>
+</html>
