@@ -19,6 +19,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 import anyio
+import psycopg
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.routes import create_protected_resource_routes
@@ -186,7 +187,19 @@ async def _run(fn) -> Any:
         raise ToolError(f"Registry: {exc}")
     except NotFoundError as exc:
         raise ToolError(str(exc))
+    # Sicherheitsnetz: DB-Fehler, die die Python-Validierung nicht abfängt
+    # (z. B. kaputte UUIDs/Datumsformate), als klare Meldung statt rohem
+    # psycopg-Traceback ausliefern.
+    except psycopg.DataError as exc:
+        raise ToolError(f"Ungültige Eingabe: {_pg_message(exc)}")
+    except psycopg.IntegrityError as exc:
+        raise ToolError(f"Konflikt mit bestehenden Daten: {_pg_message(exc)}")
     return _compact(to_jsonable_python(result))
+
+
+def _pg_message(exc: psycopg.Error) -> str:
+    primary = exc.diag.message_primary if exc.diag else None
+    return primary or str(exc).splitlines()[0]
 
 
 # --- Verfassung ----------------------------------------------------------------

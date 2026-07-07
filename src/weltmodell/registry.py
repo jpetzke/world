@@ -121,6 +121,10 @@ def propose_type(
 ) -> dict:
     if get_type(conn, type_id):
         raise RegistryError(f"Typ '{type_id}' existiert bereits")
+    if kind not in ("continuant", "occurrent"):
+        raise RegistryError(
+            f"Ungültiges kind '{kind}' (erlaubt: continuant, occurrent)"
+        )
     return conn.execute(
         """INSERT INTO proposed_type
              (type_id, parent_id, kind, label, interfaces, label_predicate,
@@ -215,6 +219,21 @@ def propose_predicate(
 ) -> dict:
     if get_predicate(conn, predicate_id):
         raise RegistryError(f"Prädikat '{predicate_id}' existiert bereits")
+    # Kontextfreie Shape-Regeln sofort prüfen (fail fast) — Kontext-Regeln
+    # (Domain/Range/Parent existieren?) bleiben beim Approve, weil sich der
+    # Kontext bis dahin ändern kann (z. B. Typ-Proposal in derselben Charge).
+    if range_kind not in RANGE_KINDS:
+        raise RegistryError(
+            f"Ungültiger range_kind '{range_kind}' (erlaubt: {', '.join(RANGE_KINDS)})"
+        )
+    if range_type and range_kind != "entity":
+        raise RegistryError("range_type nur bei range_kind='entity' erlaubt")
+    if identifying and (range_kind != "string" or cardinality != "1:1"):
+        raise RegistryError(
+            "identifying erfordert range_kind='string' und cardinality='1:1' "
+            "(Stufe-1-Resolve matcht exakt auf value_text, §7.2) — ist "
+            f"range_kind='{range_kind}', cardinality='{cardinality}'"
+        )
     return conn.execute(
         """INSERT INTO proposed_predicate
              (predicate_id, label, domain_type, domain_interface, range_kind,
@@ -368,6 +387,10 @@ def reject_proposal(conn: psycopg.Connection, table: str, proposal_id: str) -> d
 
 
 def list_proposals(conn: psycopg.Connection, status: str = "pending") -> dict:
+    if status not in ("pending", "approved", "rejected"):
+        raise RegistryError(
+            f"Ungültiger status '{status}' (erlaubt: pending, approved, rejected)"
+        )
     return {
         "types": conn.execute(
             "SELECT * FROM proposed_type WHERE status = %s ORDER BY created_at",

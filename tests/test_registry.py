@@ -174,26 +174,28 @@ def test_identifying_proposebar_roundtrip(conn, source_id):
 
 
 def test_identifying_erfordert_string_1_1(conn):
-    p1 = registry.propose_predicate(
-        conn, predicate_id="kaputt_ident_card", label="x", range_kind="string",
-        domain_type="Person", cardinality="1:n", identifying=True,
-        proposed_by="pytest",
-    )
+    # Fail fast: der Shape-Verstoß wird schon beim Propose abgelehnt …
     with pytest.raises(RegistryError, match="identifying"):
-        registry.approve_predicate(conn, str(p1["id"]))
-    p2 = registry.propose_predicate(
-        conn, predicate_id="kaputt_ident_range", label="x", range_kind="number",
+        registry.propose_predicate(
+            conn, predicate_id="kaputt_ident_card", label="x",
+            range_kind="string", domain_type="Person", cardinality="1:n",
+            identifying=True, proposed_by="pytest",
+        )
+    # … und der Approve prüft dieselbe Regel erneut (ein Amend kann den
+    # Shape nachträglich kaputt machen).
+    p = registry.propose_predicate(
+        conn, predicate_id="kaputt_ident_amend", label="x", range_kind="string",
         domain_type="Person", cardinality="1:1", identifying=True,
         proposed_by="pytest",
     )
+    registry.amend_proposal(conn, str(p["id"]), {"cardinality": "1:n"})
     with pytest.raises(RegistryError, match="identifying"):
-        registry.approve_predicate(conn, str(p2["id"]))
+        registry.approve_predicate(conn, str(p["id"]))
 
 
 def test_identifying_index_blockt_dublette(conn, source_id):
-    import psycopg
-
     from weltmodell.entities import create_entity
+    from weltmodell.errors import ValidationError
     from weltmodell.statements import commit_statement
 
     prop = registry.propose_predicate(
@@ -209,12 +211,13 @@ def test_identifying_index_blockt_dublette(conn, source_id):
         conn, subject_id=str(e1["id"]), predicate_id="test_kennung_uniq",
         value={"type": "string", "text": "DUP-1"}, source_ids=[source_id],
     )
-    with pytest.raises(psycopg.errors.UniqueViolation):
+    # Klare Meldung mit Kurations-Hinweis statt roher UniqueViolation
+    # (der partielle Unique-Index bleibt als DB-seitiges Sicherheitsnetz).
+    with pytest.raises(ValidationError, match="welt_merge_entities"):
         commit_statement(
             conn, subject_id=str(e2["id"]), predicate_id="test_kennung_uniq",
             value={"type": "string", "text": "DUP-1"}, source_ids=[source_id],
         )
-    conn.rollback()
 
 
 def test_ensure_identifying_index_berichtet_konflikte(conn, source_id):
@@ -376,3 +379,36 @@ def test_bulk_propose_types_und_predicates(conn):
          "domain_type": "Person", "cardinality": "1:n"},
     ], atomic=True)
     assert res["committed"] == 1
+
+
+def test_propose_failt_frueh_bei_shape_verstoessen(conn):
+    with pytest.raises(RegistryError, match="range_kind"):
+        registry.propose_predicate(
+            conn, predicate_id="quatsch_range", label="x", range_kind="farbe",
+            domain_type="Person", cardinality="1:1", proposed_by="test",
+        )
+    with pytest.raises(RegistryError, match="identifying"):
+        registry.propose_predicate(
+            conn, predicate_id="quatsch_ident", label="x", range_kind="string",
+            domain_type="Person", cardinality="1:n", identifying=True,
+            proposed_by="test",
+        )
+    with pytest.raises(RegistryError, match="kind"):
+        registry.propose_type(
+            conn, type_id="QuatschKind", parent_id="Person", kind="dings",
+            label="x", proposed_by="test",
+        )
+
+
+def test_list_proposals_validiert_status(conn):
+    with pytest.raises(RegistryError, match="status"):
+        registry.list_proposals(conn, status="quatsch")
+
+
+def test_stats_zaehlt_interface_proposals(conn):
+    from weltmodell.queries import stats
+
+    before = stats(conn)["pending_proposals"]
+    registry.propose_interface(conn, interface_id="StatsZaehlIface", label="x",
+                               proposed_by="test")
+    assert stats(conn)["pending_proposals"] == before + 1

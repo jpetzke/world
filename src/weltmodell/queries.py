@@ -486,6 +486,7 @@ def stats(conn: psycopg.Connection) -> dict[str, Any]:
              (SELECT count(*) FROM source_document) AS sources,
              (SELECT count(*) FROM proposed_type WHERE status = 'pending')
              + (SELECT count(*) FROM proposed_predicate WHERE status = 'pending')
+             + (SELECT count(*) FROM proposed_interface WHERE status = 'pending')
                AS pending_proposals"""
     ).fetchone()
     row["by_type"] = conn.execute(
