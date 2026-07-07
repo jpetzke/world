@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import api_keys, auth, files, follower_import, mcp_auth, pipeline, queries, registry, resolution, statements
+from . import api_keys, auth, files, follower_import, graph_metrics, mcp_auth, pipeline, queries, registry, resolution, statements
 from .auth import require_auth, require_scope
 from .config import get_public_url, get_session_secret, is_prod
 from .mcp_server import McpPathDispatch, build_mcp_asgi, mcp
@@ -242,6 +242,22 @@ class TraversePayload(BaseModel):
     max_nodes: int = 400
 
 
+class PositionItem(BaseModel):
+    id: str
+    x: float
+    y: float
+
+
+class PositionsPayload(BaseModel):
+    positions: list[PositionItem] = Field(min_length=1, max_length=5000)
+
+
+class PathPayload(BaseModel):
+    from_id: str
+    target_ids: list[str] = Field(min_length=1, max_length=5000)
+    max_depth: int = Field(default=6, ge=1, le=8)
+
+
 class FollowerRow(BaseModel):
     username: str
     display_name: str | None = None
@@ -421,6 +437,34 @@ def get_stats(conn=Depends(db)):
 @read_router.get("/graph")
 def get_graph(max_nodes: int = 400, conn=Depends(db)):
     return queries.graph_snapshot(conn, max_nodes=min(max_nodes, 2000))
+
+
+@read_router.get("/graph/skeleton")
+def get_graph_skeleton(budget: int = 800, conn=Depends(db)):
+    """Repräsentatives Grundgerüst (Top-PageRank je Community + globale Hubs)
+    mit persistierten Layout-Positionen — DoI-Rendering statt Voll-Load."""
+    return graph_metrics.skeleton(conn, budget=max(50, min(budget, 3000)))
+
+
+@write_router.post("/graph/positions")
+def post_graph_positions(payload: PositionsPayload, conn=Depends(db)):
+    return graph_metrics.save_positions(
+        conn, [p.model_dump() for p in payload.positions]
+    )
+
+
+@read_router.post("/graph/path")
+def post_graph_path(payload: PathPayload, conn=Depends(db)):
+    """Kürzester Pfad vom Suchtreffer zum bereits geladenen Graph-Ausschnitt."""
+    return graph_metrics.path_to_targets(
+        conn, payload.from_id, payload.target_ids, max_depth=payload.max_depth
+    )
+
+
+@admin_router.post("/graph/metrics/recompute")
+def post_graph_recompute(conn=Depends(db)):
+    """Expliziter Rebuild von Community/PageRank/Grad (sonst lazy nach 24h)."""
+    return graph_metrics.recompute(conn)
 
 
 @read_router.get("/entities")
