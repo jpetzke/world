@@ -5,6 +5,7 @@ import { api, setUnauthorizedHandler } from './api/client'
 import { AskOrb } from './components/AskOrb'
 import { Loading } from './components/bits'
 import { SpaceBackdrop } from './components/SpaceBackdrop'
+import { AiPage } from './pages/AiPage'
 import { ApiKeysPage } from './pages/ApiKeysPage'
 import { CreatePage } from './pages/CreatePage'
 import { Dashboard } from './pages/Dashboard'
@@ -66,6 +67,7 @@ function Shell({ username }: { username: string }) {
         <div className="nav">
           <NavLink to="/" end>Graph</NavLink>
           <NavLink to="/browse">Suche</NavLink>
+          <NavLink to="/ai">WorldAI</NavLink>
           <NavLink to="/create">Anlegen</NavLink>
           <NavLink to="/import">Import</NavLink>
           <NavLink to="/registry">Registry</NavLink>
@@ -84,6 +86,8 @@ function Shell({ username }: { username: string }) {
         <Routes>
           <Route path="/" element={<GraphHome />} />
           <Route path="/browse" element={<Dashboard />} />
+          <Route path="/ai" element={<AiPage />} />
+          <Route path="/ai/:id" element={<AiPage />} />
           <Route path="/create" element={<CreatePage />} />
           <Route path="/import" element={<ImportPage />} />
           <Route path="/entity/:id" element={<EntityPage />} />

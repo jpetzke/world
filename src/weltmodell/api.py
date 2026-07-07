@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import api_keys, auth, files, follower_import, graph_metrics, mcp_auth, pipeline, queries, registry, resolution, statements
+from .ai import router as ai_router
 from .auth import require_auth, require_scope
 from .config import get_public_url, get_session_secret, is_prod
 from .mcp_server import McpPathDispatch, build_mcp_asgi, mcp
@@ -599,6 +600,9 @@ def delete_key(key_id: UUID, conn=Depends(db)):
 # einzige Schreibweg ist die API, jetzt zusätzlich hinter Auth/Scope.
 app.include_router(auth.router, prefix="/api")
 app.include_router(keys_router, prefix="/api", dependencies=[Depends(require_auth)])
+# WorldAI: Session-only wie die Key-Verwaltung — der Chat ist ein UI-Feature,
+# API-Keys brauchen ihn nicht.
+app.include_router(ai_router.router, prefix="/api", dependencies=[Depends(require_auth)])
 app.include_router(read_router, prefix="/api", dependencies=[Depends(require_scope("read"))])
 app.include_router(write_router, prefix="/api", dependencies=[Depends(require_scope("write"))])
 app.include_router(admin_router, prefix="/api", dependencies=[Depends(require_scope("admin"))])

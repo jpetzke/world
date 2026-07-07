@@ -16,6 +16,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_INSTALL_DIR=/python \
     PYTHONUNBUFFERED=1
 
+# quickjs (compute-Sandbox von WorldAI) kommt als sdist mit C-Extension —
+# Compiler + libc-Header für den Build nachrüsten (multi-arch: baut auch arm64).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Abhängigkeiten zuerst → Layer-Cache greift, solange sich der Lock nicht ändert.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project

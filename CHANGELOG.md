@@ -1,5 +1,40 @@
 # Changelog
 
+## WorldAI — agentischer Chat über dem Knowledge Graph (/ai)
+
+Web-UI unter `/ai` (gleiche Domain, gleiches Deployment, kein neuer
+Container). Beantwortet Analyse-Fragen („wer folgt A und B", „über wen
+kennen sich X und Y") mit sichtbaren Zwischenschritten.
+
+- **In-Process-Tools:** WorldAI zieht die Tool-Schemas zur Laufzeit aus
+  derselben FastMCP-Registry wie der MCP-Server (`ai/tools.py`) — neue
+  Server-Tools sind automatisch sichtbar, keine hartkodierten Definitionen.
+  Ausführung setzt einen synthetischen Access-Token pro Chat-Session in die
+  Auth-Contextvar; der Verfassungs-Session-Lock gilt unverändert.
+- **Agent-Loop** (`ai/agent.py`): eigener Loop über das OpenAI-kompatible
+  Chat-Completions-Format, max. 20 Iterationen, alles per SSE ans UI
+  (Tokens, Tool-Start, Ergebnis-Digest, Fehler). Provider-Abstraktion
+  (`ai/providers.py`): OpenRouter (Default) + Azure OpenAI, Auswahl per
+  `MODEL_PROVIDER`/`MODEL_ID`, Modell-Override pro Chat im UI-Dropdown
+  (`WORLDAI_MODELS`).
+- **Result-Offloading** (Migration 0020, `ai/results.py`): Tool-Ergebnisse
+  über `WORLDAI_RESULT_THRESHOLD` (Default 8000 Zeichen) landen im
+  Session-Result-Store statt im Kontext; das Modell sieht Summary + Sample +
+  `ref:<id>`. Lokales Tool **compute(code, refs)** (`ai/compute.py`,
+  quickjs-Sandbox: kein Netz/FS, 3s, 128MB) verrechnet refs exakt
+  (Schnittmengen, Joins) statt Mengen zu schätzen. Dockerfile: gcc für den
+  quickjs-sdist-Build (multi-arch).
+- **Schreib-Gate:** Schreib-Tools (Präfix-Klassifikation) pausieren den
+  Loop; das UI rendert eine Bestätigungskarte mit vollen Parametern.
+  Ablehnung geht als Tool-Result ans Modell zurück.
+- **Sessions** in PostgreSQL (ai_session/ai_message/ai_result),
+  wiederaufnehmbar; Anker-Cache aufgelöster Entities als append-only
+  Delta-Block (KV-Cache-freundlich, statischer System-Prefix).
+- **UI:** Chat mit SSE-Streaming, kollabierbare Step-Karten (Name,
+  Parameter, Dauer, Digest), `welt_path`/`welt_traverse` zusätzlich als
+  d3-force-Mini-Graph, Entity-Chips (`[[entity:<id>|<label>]]`) klickbar
+  zur Entity-Seite, Session-Liste + Modell-Dropdown.
+
 ## Frontend-Redesign „Orbital" + Degree-of-Interest-Graph
 
 Verbindliche Spec: `weltmodell-design-system.html` (Repo-Root). Der Graph
