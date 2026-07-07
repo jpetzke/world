@@ -122,7 +122,7 @@ datetime-Statements (mit Provenance). `valid_from`/`valid_to` sagen, wann die
   Deshalb ist der Domain-Check für Qualifier BEWUSST ausgesetzt — eine Domain
   bezieht sich auf das Subjekt eines Haupt-Statements. Validiert wird der
   range_kind (Werttyp muss dem Prädikat entsprechen; nur entity/string/
-  number/datetime sind als Qualifier-Werte möglich).
+  number/quantity/datetime sind als Qualifier-Werte möglich).
 - **Statement-Suche (`welt_query`):** viertes Standbein neben Search,
   Entity-View und Traverse. Default-Sicht wie überall: aktuell
   (`system_to IS NULL`), deprecated ausgeblendet; `rank` filtert exakt,

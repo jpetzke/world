@@ -238,17 +238,18 @@ def _insert_qualifier(conn: psycopg.Connection, statement_id: str, q: dict) -> N
             f"Qualifier-Range-Verstoß: '{q['predicate_id']}' erwartet "
             f"value_type '{pred['range_kind']}', bekam '{cols['value_type']}'"
         )
-    if cols["value_type"] not in ("entity", "string", "number", "datetime"):
+    if cols["value_type"] not in ("entity", "string", "number", "quantity", "datetime"):
         raise ValidationError(
             f"Qualifier unterstützt value_type '{cols['value_type']}' nicht"
         )
     conn.execute(
         """INSERT INTO qualifier
              (statement_id, predicate_id, value_type, value_text, value_number,
-              value_datetime, object_id)
-           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+              value_unit, value_datetime, object_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
         (statement_id, q["predicate_id"], cols["value_type"], cols["value_text"],
-         cols["value_number"], cols["value_datetime"], cols["object_id"]),
+         cols["value_number"], cols["value_unit"], cols["value_datetime"],
+         cols["object_id"]),
     )
 
 
@@ -293,9 +294,10 @@ def supersede_statement(
     ).fetchone()
     conn.execute(
         """INSERT INTO qualifier (statement_id, predicate_id, value_type,
-                                  value_text, value_number, value_datetime, object_id)
+                                  value_text, value_number, value_unit,
+                                  value_datetime, object_id)
            SELECT %s, predicate_id, value_type, value_text, value_number,
-                  value_datetime, object_id
+                  value_unit, value_datetime, object_id
            FROM qualifier WHERE statement_id = %s""",
         (new["id"], statement_id),
     )

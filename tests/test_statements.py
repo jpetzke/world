@@ -432,3 +432,29 @@ def test_fix_entity_blockt_benutzte_anker(conn, person, source_id):
     e = str(create_entity(conn, type_id="Person", label="Ohne Grund")["id"])
     with pytest.raises(ValidationError, match="reason"):
         fix_entity(conn, e, reason="   ")
+
+
+def test_qualifier_quantity_mit_unit(conn, source_id):
+    # Wikidata-Praxis (z. B. P1114 „Anzahl" als Qualifier): quantity ist als
+    # Qualifier zulässig; die unit wandert mit (auch durch Supersession).
+    unternehmen = str(create_entity(conn, type_id="Unternehmen", label="Quali AG")["id"])
+    wertpapier = str(create_entity(conn, type_id="Wertpapier", label="Quali Aktie")["id"])
+    row = commit_statement(
+        conn, subject_id=wertpapier, predicate_id="emittiert_von",
+        value={"type": "entity", "object_id": unternehmen},
+        source_ids=[source_id],
+        qualifiers=[{"predicate_id": "kaufpreis",
+                     "value": {"type": "quantity", "number": 100, "unit": "EUR"}}],
+    )
+    q = conn.execute(
+        "SELECT * FROM qualifier WHERE statement_id = %s", (row["id"],)
+    ).fetchone()
+    assert q["value_type"] == "quantity"
+    assert float(q["value_number"]) == 100.0
+    assert q["value_unit"] == "EUR"
+
+    new = supersede_statement(conn, str(row["id"]), rank="preferred")
+    q2 = conn.execute(
+        "SELECT * FROM qualifier WHERE statement_id = %s", (new["id"],)
+    ).fetchone()
+    assert q2["value_unit"] == "EUR"
