@@ -16,7 +16,7 @@ import psycopg
 from .embeddings import get_embedder
 from .entities import canonical_id, create_entity, get_entity
 from .errors import ValidationError
-from .registry import descendant_type_ids, get_predicate
+from .registry import descendant_type_ids, get_predicate, get_type
 
 VECTOR_CANDIDATE_THRESHOLD = 0.80  # Kosinus-Similarity → Merge-Kandidat
 VECTOR_AUTO_MATCH_THRESHOLD = 0.93  # darüber: Pipeline nutzt Kandidat direkt
@@ -34,6 +34,10 @@ def resolve(
 
     Returns {"match": id|None, "method": ..., "candidates": [...]}.
     """
+    if get_type(conn, type_id) is None:
+        # Tippfehler-Typ würde sonst stumm null Kandidaten liefern — und der
+        # Aufrufer legte im guten Glauben eine Dublette an.
+        raise ValidationError(f"Unbekannter Typ '{type_id}'")
     warnings: list[str] = []
     # Stufe 1: deterministische Keys
     for pred_id, value in (identifiers or {}).items():

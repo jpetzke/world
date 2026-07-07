@@ -202,3 +202,12 @@ def test_merge_schliesst_self_loops(conn, source_id):
         not (str(s["subject_id"]) == b and str(s.get("object_id")) == b)
         for s in view["statements"]
     ), "Self-Loop darf nicht in der Current View auftauchen"
+
+
+def test_resolve_und_search_meckern_bei_unbekanntem_typ(conn):
+    from weltmodell.queries import semantic_search
+
+    with pytest.raises(ValidationError, match="Unbekannter Typ"):
+        resolve(conn, type_id="Quatschtyp", label="Egal")
+    with pytest.raises(ValidationError, match="Unbekannter Typ"):
+        semantic_search(conn, "Egal", type_id="Quatschtyp")

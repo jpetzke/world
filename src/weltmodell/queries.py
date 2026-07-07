@@ -543,6 +543,10 @@ def semantic_search(
 
     Der Typ-Filter ist subtyp-fähig: Filtern auf `Agent` liefert Person/Organization.
     """
+    if type_id is not None and not conn.execute(
+        "SELECT 1 FROM entity_type WHERE id = %s", (type_id,)
+    ).fetchone():
+        raise ValidationError(f"Unbekannter Typ '{type_id}'")
     types = descendant_type_ids(conn, type_id) if type_id else None
     embedding = get_embedder().embed(query)
     rows = conn.execute(
