@@ -91,16 +91,21 @@ function run(alpha: number) {
   if (!sim) return
   sim.alpha(Math.max(sim.alpha(), alpha))
   if (timer) return
+  // Große Graphen: mehrere Sim-Ticks pro Post — jeder Post ist ein voller
+  // sigma-Reprocess auf dem Main Thread; die Physik darf schneller rechnen,
+  // als sie gemalt wird.
+  const big = nodes.length > 400
+  const ticksPerPost = big ? 3 : 1
   timer = setInterval(() => {
     if (!sim) return
-    sim.tick()
+    for (let i = 0; i < ticksPerPost; i++) sim.tick()
     postPositions()
     if (sim.alpha() < (sim.alphaMin() ?? 0.02)) {
       clearInterval(timer!)
       timer = null
       post({ type: 'settled' })
     }
-  }, 16)
+  }, big ? 48 : 32)
 }
 
 /** Golden-Angle-Seed wie in der Referenz-Demo: Hubs innen, Rest in Ringen —

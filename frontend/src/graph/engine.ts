@@ -74,6 +74,8 @@ export class GraphEngine {
   private dragged: string | null = null
   private dragMoved = false
   private destroyed = false
+  private pendingHover: { x: number; y: number } | null = null
+  private hoverRaf = 0
   private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 
   constructor(
@@ -116,6 +118,15 @@ export class GraphEngine {
       edgeReducer: this.edgeReducer,
     })
 
+    // sigmas eigenes Picking liest pro Mausevent per gl.readPixels aus dem
+    // Framebuffer — das erzwingt einen GPU-Pipeline-Sync und kostet bei
+    // laufender Simulation ~100ms pro Event. Unser geometrisches Picking
+    // (O(n), rAF-gedrosselt) ersetzt es komplett und liefert nebenbei den
+    // 20px-Mindest-Treffradius (R8) auch für sigmas eigene Events.
+    ;(this.sigma as unknown as {
+      getNodeAtPosition: (p: { x: number; y: number }) => string | null
+    }).getNodeAtPosition = (position) => this.pick(position.x, position.y)
+
     this.overlay = document.createElement('canvas')
     this.overlay.className = 'graph-overlay'
     container.appendChild(this.overlay)
@@ -138,6 +149,7 @@ export class GraphEngine {
     nodes.forEach((n, i) => this.addNode(n, i))
     for (const e of edges) this.addEdge(e)
     this.graph.forEachNode((id) => this.graph.setNodeAttribute(id, 'skeleton', true))
+    this.recomputeAllGhosts()
     this.pushInit()
     this.emitStats()
   }
@@ -168,6 +180,7 @@ export class GraphEngine {
       if (this.addEdge(e)) newEdges.push(e)
     }
     if (anchorId) this.touch(anchorId)
+    this.recomputeAllGhosts()
     this.startFades()
     this.evictToBudget(new Set([...fresh.map((n) => n.id), anchorId ?? '']))
     if (fresh.length || newEdges.length) {
@@ -231,8 +244,21 @@ export class GraphEngine {
 
   ghostCount(id: string): number {
     if (!this.graph.hasNode(id)) return 0
+    return (this.graph.getNodeAttribute(id, 'ghosts') as number | undefined)
+      ?? this.computeGhosts(id)
+  }
+
+  /** Ghost-Zähler cachen — pro Frame 800× graph.degree() ist zu teuer.
+      Neu berechnen bei jeder Topologie-Änderung (add/drop). */
+  private computeGhosts(id: string): number {
     const db = this.graph.getNodeAttribute(id, 'dbDegree') as number
-    return Math.max(0, db - this.graph.degree(id))
+    const g = Math.max(0, db - this.graph.degree(id))
+    this.graph.setNodeAttribute(id, 'ghosts', g)
+    return g
+  }
+
+  private recomputeAllGhosts() {
+    this.graph.forEachNode((id) => this.computeGhosts(id))
   }
 
   loadedIds(): string[] {
@@ -362,6 +388,7 @@ export class GraphEngine {
       if (this.hover === id) this.hover = null
     }
     this.worker.postMessage({ type: 'remove', ids } satisfies LayoutMsgIn)
+    this.recomputeAllGhosts()
     this.updateFocus()
     this.emitStats()
   }
@@ -381,16 +408,24 @@ export class GraphEngine {
       if (this.destroyed) return
       const now = performance.now()
       const toDrop: string[] = []
+      const sizes = new Map<string, number>()
       for (const [id, f] of this.fades) {
         if (!this.graph.hasNode(id)) { this.fades.delete(id); continue }
         const dur = f.drop ? EVICT_FADE_MS : FADE_MS
         const t = Math.min(1, (now - f.start) / dur)
         const eased = 1 - (1 - t) * (1 - t)
-        this.graph.setNodeAttribute(id, 'size', f.from + (f.to - f.from) * eased)
+        sizes.set(id, f.from + (f.to - f.from) * eased)
         if (t >= 1) {
           this.fades.delete(id)
           if (f.drop) toDrop.push(id)
         }
+      }
+      // Ein Batch-Event statt n einzelner setNodeAttribute-Events pro Frame.
+      if (sizes.size) {
+        this.graph.updateEachNodeAttributes((id, attrs) => {
+          const s = sizes.get(id)
+          return s === undefined ? attrs : { ...attrs, size: s }
+        }, { attributes: ['size'] })
       }
       if (toDrop.length) this.dropNodes(toDrop)
       if (this.fades.size) this.fadeRaf = requestAnimationFrame(step)
@@ -557,21 +592,30 @@ export class GraphEngine {
     const ratio = this.sigma.getCamera().ratio
     const focus = this.hover ?? this.selected
 
-    // Ghost-Badges: LOD — weit rausgezoomt wären 3k Badges nur Rauschen.
+    // Ghost-Badges mit LOD (analog Label-LOD): nur für Nodes, die groß genug
+    // gerendert werden — weit rausgezoomt wären 800 Badges nur Rauschen und
+    // 800× measureText+roundRect pro Frame killen die 60 FPS. Fokus-Nodes
+    // zeigen ihr Badge immer.
     if (ratio < 1.6) {
+      ctx.font = '500 10px "IBM Plex Mono", monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      let drawn = 0
+      const sizeLod = 5 * Math.sqrt(ratio) // gerenderte Größe ≥ 5px
       this.graph.forEachNode((id, a) => {
-        if (a.hidden) return
+        if (drawn >= 250) return
+        const inFocusSet = this.neighborhood?.has(id) ?? false
+        if (this.neighborhood && !inFocusSet) return
+        if (!inFocusSet && (a.size as number) < sizeLod) return
         const kind = a.kind as Kind
         if (this.filters.hiddenKinds?.includes(kind)) return
-        if (this.neighborhood && !this.neighborhood.has(id)) return
-        const ghost = this.ghostCount(id)
+        const ghost = (a.ghosts as number) ?? 0
         if (ghost <= 0) return
         const p = this.sigma.graphToViewport({ x: a.x as number, y: a.y as number })
         if (p.x < -40 || p.y < -40 || p.x > rect.width + 40 || p.y > rect.height + 40) return
         const size = (a.size as number) / Math.sqrt(ratio)
         const text = ghost > 99 ? '99+' : `+${ghost}`
-        ctx.font = '500 10px "IBM Plex Mono", monospace'
-        const w = ctx.measureText(text).width + 10
+        const w = this.textWidth(ctx, text) + 10
         const bx = p.x + size * 0.6 + 2
         const by = p.y - size * 0.6 - 16
         ctx.fillStyle = BADGE_BG
@@ -582,11 +626,10 @@ export class GraphEngine {
         ctx.fill()
         ctx.stroke()
         ctx.fillStyle = TEXT_META
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
         ctx.fillText(text, bx + w / 2, by + 8)
         // Hit-Area großzügiger als die Pille (R8).
         this.badgeRects.push({ x: bx - 4, y: by - 6, w: w + 8, h: 27, id })
+        drawn++
       })
     }
 
@@ -643,6 +686,16 @@ export class GraphEngine {
   }
 
   // --- Interaktion ---------------------------------------------------------------
+
+  private textWidths = new Map<string, number>()
+  private textWidth(ctx: CanvasRenderingContext2D, text: string): number {
+    let w = this.textWidths.get(text)
+    if (w === undefined) {
+      w = ctx.measureText(text).width
+      this.textWidths.set(text, w)
+    }
+    return w
+  }
 
   /** Nächster Node im Umkreis — R8: Treffradius min. 20px. */
   private pick(vx: number, vy: number): string | null {
@@ -724,14 +777,24 @@ export class GraphEngine {
         e.original.stopPropagation()
         return
       }
-      // Hover mit Mindest-Treffradius (R8) — ersetzt sigmas size-gebundenes Hover.
-      const hit = this.pickBadge(e.x, e.y) ? null : this.pick(e.x, e.y)
-      const overBadge = !!this.pickBadge(e.x, e.y)
-      this.container.style.cursor = hit || overBadge ? 'pointer' : ''
-      if (hit !== this.hover) {
-        this.hover = hit
-        this.updateFocus()
-        this.refresh()
+      // Hover mit Mindest-Treffradius (R8) — ersetzt sigmas size-gebundenes
+      // Hover. rAF-gedrosselt: pick() ist O(n) und mousemove feuert öfter
+      // als Frames gerendert werden.
+      this.pendingHover = { x: e.x, y: e.y }
+      if (!this.hoverRaf) {
+        this.hoverRaf = requestAnimationFrame(() => {
+          this.hoverRaf = 0
+          if (this.destroyed || this.dragged || !this.pendingHover) return
+          const { x, y } = this.pendingHover
+          const overBadge = !!this.pickBadge(x, y)
+          const hit = overBadge ? null : this.pick(x, y)
+          this.container.style.cursor = hit || overBadge ? 'pointer' : ''
+          if (hit !== this.hover) {
+            this.hover = hit
+            this.updateFocus()
+            this.refresh()
+          }
+        })
       }
     })
     mouse.on('mouseup', () => {

@@ -63,9 +63,9 @@ export const GraphView = forwardRef<GraphViewHandle, Props>(function GraphView(
       { budget },
     )
     engineRef.current = engine
-    if (import.meta.env.DEV) {
-      ;(window as unknown as Record<string, unknown>).__graphEngine = engine
-    }
+    // Für die Playwright-Verifikations-Suite (Perf-Messung, Drag-Test) —
+    // Single-User-App, kein Geheimnis auf window.
+    ;(window as unknown as Record<string, unknown>).__graphEngine = engine
     return () => {
       engine.destroy()
       engineRef.current = null
