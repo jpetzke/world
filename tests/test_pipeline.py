@@ -120,3 +120,45 @@ def test_gate_approval_closes_flywheel(conn):
     view = entity_view(conn, person["id"])
     food = [s for s in view["statements"] if s["predicate_id"] == "favorite_food"]
     assert food and food[0]["value_text"] == "Ramen"
+
+
+def test_pipeline_ueberlebt_db_fehler_pro_kandidat(conn):
+    """Ein Kandidat mit DB-Fehler (unparsebares Datum) rollt nur sich selbst
+    zurück (Savepoint) — gültige Kandidaten davor und danach committen."""
+    from weltmodell.pipeline import (
+        CandidateStatement,
+        EntityRef,
+        ExtractionResult,
+        run_pipeline,
+    )
+
+    class KaputterExtractor:
+        def extract(self, raw, vocabulary):
+            person = EntityRef("Person", label="Savepoint Susi")
+            return ExtractionResult(
+                statements=[
+                    CandidateStatement(
+                        person, "name", {"type": "string", "text": "Savepoint Susi"},
+                    ),
+                    CandidateStatement(
+                        person, "name", {"type": "string", "text": "Kaputt"},
+                        valid_from="kein-datum",  # DB-Fehler beim Insert
+                    ),
+                    CandidateStatement(
+                        person, "alias", {"type": "string", "text": "Susi S."},
+                    ),
+                ],
+                malformed=[{"predicate_id": None,
+                            "problem": "fehlgeformtes Extraktor-Item: Test"}],
+            )
+
+    doc = ingest_document(
+        conn, raw={"x": 1}, activity="test:savepoint", agent="pytest",
+    )
+    report = run_pipeline(
+        conn, source_id=str(doc["id"]), extractor=KaputterExtractor(),
+    )
+    assert len(report["committed"]) == 2
+    assert len(report["rejected"]) == 2  # DB-Fehler-Kandidat + malformed-Item
+    assert any("fehlgeformtes" in p for r in report["rejected"]
+               for p in r["problems"])

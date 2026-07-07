@@ -136,20 +136,30 @@ class LLMExtractor:
             )
 
         for s in payload.get("statements") or []:
-            value = s.get("value") or {}
-            parsed_value: dict[str, Any] | EntityRef = (
-                ref(value["ref"]) if value.get("type") == "entity" and value.get("ref")
-                else value
-            )
-            result.statements.append(
-                CandidateStatement(
-                    subject=ref(s["subject"]),
-                    predicate_id=s["predicate_id"],
-                    value=parsed_value,
-                    confidence=float(s.get("confidence", 0.7)),
-                    valid_from=s.get("valid_from"),
-                    valid_to=s.get("valid_to"),
-                    qualifiers=s.get("qualifiers") or [],
+            # Ein fehlgeformtes Model-Item darf nicht die ganze Extraktion
+            # crashen — überspringen und im Pipeline-Report ausweisen.
+            try:
+                value = s.get("value") or {}
+                parsed_value: dict[str, Any] | EntityRef = (
+                    ref(value["ref"])
+                    if value.get("type") == "entity" and value.get("ref")
+                    else value
                 )
-            )
+                result.statements.append(
+                    CandidateStatement(
+                        subject=ref(s["subject"]),
+                        predicate_id=s["predicate_id"],
+                        value=parsed_value,
+                        confidence=float(s.get("confidence", 0.7)),
+                        valid_from=s.get("valid_from"),
+                        valid_to=s.get("valid_to"),
+                        qualifiers=s.get("qualifiers") or [],
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                result.malformed.append({
+                    "predicate_id": (s or {}).get("predicate_id")
+                    if isinstance(s, dict) else None,
+                    "problem": f"fehlgeformtes Extraktor-Item: {exc!r}",
+                })
         return result

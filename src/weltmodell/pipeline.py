@@ -46,6 +46,9 @@ class ExtractionResult:
     statements: list[CandidateStatement] = field(default_factory=list)
     proposed_predicates: list[dict[str, Any]] = field(default_factory=list)
     proposed_types: list[dict[str, Any]] = field(default_factory=list)
+    # fehlgeformte Extraktor-Items (z. B. LLM-Output ohne subject/predicate):
+    # werden übersprungen und im Pipeline-Report als rejected ausgewiesen
+    malformed: list[dict[str, Any]] = field(default_factory=list)
 
 
 class Extractor(Protocol):
@@ -229,7 +232,19 @@ def run_pipeline(
         return resolved_refs[key]
 
     committed, rejected = [], []
-    for cand in extraction.statements:
+    for item in extraction.malformed:
+        rejected.append({"predicate": item.get("predicate_id"),
+                         "problems": [item.get("problem", "fehlgeformtes Item")]})
+    for i, cand in enumerate(extraction.statements):
+        # Savepoint pro Kandidat: ein fehlerhafter Kandidat (auch ein
+        # DB-Fehler, z. B. unparsebares LLM-Datum) landet in rejected und
+        # rollt nur sich selbst zurück — ohne Savepoint wäre die Transaktion
+        # abgebrochen und ALLE Folge-Kandidaten scheiterten mit. Der
+        # Ref-Cache wird mit zurückgesetzt (im Savepoint angelegte Entities
+        # existieren nach dem Rollback nicht mehr).
+        refs_before = dict(resolved_refs)
+        created_before = list(created_entities)
+        conn.execute(f"SAVEPOINT cand_{i}")
         try:
             subject_id = resolve_ref(cand.subject)
             value = (
@@ -248,9 +263,19 @@ def run_pipeline(
                 valid_to=cand.valid_to,
                 qualifiers=cand.qualifiers,
             )
+            conn.execute(f"RELEASE SAVEPOINT cand_{i}")
             committed.append(str(row["id"]))
-        except ValidationError as exc:
-            rejected.append({"predicate": cand.predicate_id, "problems": exc.problems})
+        except (ValidationError, psycopg.Error) as exc:
+            conn.execute(f"ROLLBACK TO SAVEPOINT cand_{i}")
+            resolved_refs.clear()
+            resolved_refs.update(refs_before)
+            created_entities[:] = created_before
+            problems = (
+                exc.problems
+                if isinstance(exc, ValidationError) and exc.problems
+                else [str(exc)]
+            )
+            rejected.append({"predicate": cand.predicate_id, "problems": problems})
 
     proposals = []
     for prop in extraction.proposed_predicates:
