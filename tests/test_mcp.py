@@ -513,3 +513,24 @@ def test_create_source_omits_raw_echo(mcp_client):
     sc = result["structuredContent"]
     assert sc["id"]
     assert "raw" not in sc
+
+
+def test_entity_view_statement_cap(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+    _tool(mcp_client, at, "welt_constitution")
+    ent = _tool(mcp_client, at, "welt_create_entity",
+                {"type_id": "Person", "label": "Cap Person"})["structuredContent"]
+    src = _tool(mcp_client, at, "welt_create_source", {
+        "activity": "test:cap", "agent": "pytest"})["structuredContent"]
+    for i in range(3):
+        _tool(mcp_client, at, "welt_commit_statement", {
+            "subject_id": ent["id"], "predicate_id": "alias",
+            "value": {"type": "string", "text": f"CapAlias{i}"},
+            "source_ids": [src["id"]],
+        })
+    view = _tool(mcp_client, at, "welt_entity", {
+        "entity_id": ent["id"], "statement_limit": 2})["structuredContent"]
+    assert len(view["statements"]) == 2
+    assert view["statements_total"] >= 3
+    assert "incoming_total" in view
