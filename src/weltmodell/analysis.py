@@ -835,7 +835,8 @@ def changes(
 
 # --- welt_sql: read-only Escape Hatch --------------------------------------------
 
-SQL_VIEWS = ("v_entities", "v_statements", "v_qualifiers", "v_sources")
+SQL_VIEWS = ("v_entities", "v_statements", "v_qualifiers", "v_sources",
+             "v_tool_log")
 
 # Gefährliche/serverseitige Funktionen: Timing, Dateizugriff, Settings,
 # Fremdzugriffe. Aggregen/String-Funktionen bleiben erlaubt.

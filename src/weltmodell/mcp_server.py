@@ -13,6 +13,8 @@ weggelassen, Roh-Dokumente nur auf Anfrage voll ausgeliefert.
 
 import hashlib
 import json
+import sys
+import time
 from functools import partial
 from pathlib import Path
 from typing import Any, Literal
@@ -20,6 +22,7 @@ from urllib.parse import urlparse
 
 import anyio
 import psycopg
+from psycopg.types.json import Jsonb
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.routes import create_protected_resource_routes
@@ -73,7 +76,78 @@ _allowed_hosts = [_parsed.netloc, "localhost:*", "127.0.0.1:*"]
 if not is_prod():
     _allowed_hosts.append("testserver")  # Starlette-TestClient
 
-mcp = FastMCP(
+
+# --- Tool-Call-Log -------------------------------------------------------------
+
+# Serialisierte Args oberhalb dieser Größe werden nicht gespeichert (Keys
+# bleiben) — Bulk-Payloads würden das Log sonst aufblähen.
+_ARGS_MAX_BYTES = 2048
+
+
+def _log_tool_call(
+    tool: str,
+    arguments: dict[str, Any],
+    duration_ms: int,
+    status: str,
+    error: str | None,
+    result: Any,
+    token_hash: str | None,
+) -> None:
+    """Eine Zeile nach mcp_tool_log schreiben (eigene Verbindung, läuft im
+    Thread). Fehler fängt der Aufrufer — ein Log-Ausfall bricht nie den Call."""
+    args_json = json.dumps(arguments, default=str)
+    if len(args_json) > _ARGS_MAX_BYTES:
+        args: dict[str, Any] = {"_truncated": True, **{k: "…" for k in arguments}}
+    else:
+        args = json.loads(args_json)  # garantiert JSON-clean (default=str oben)
+    result_bytes = None
+    if result is not None:
+        try:
+            result_bytes = len(json.dumps(to_jsonable_python(result), default=str))
+        except Exception:
+            pass  # Antwortgröße ist nice-to-have, nie ein Fehlergrund
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO mcp_tool_log"
+            " (tool, args, duration_ms, status, error, result_bytes, token_hash)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (tool, Jsonb(args), duration_ms, status, error, result_bytes, token_hash),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class LoggedFastMCP(FastMCP):
+    """Loggt jeden Tool-Call nach mcp_tool_log (Migration 0021): Tool, Args,
+    Dauer, Status, Antwortgröße, Token-Hash — auswertbar über v_tool_log."""
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        token = get_access_token()
+        token_hash = (
+            hashlib.sha256(token.token.encode()).hexdigest()[:12] if token else None
+        )
+        start = time.monotonic()
+        status, error, result = "ok", None, None
+        try:
+            result = await super().call_tool(name, arguments)
+            return result
+        except Exception as exc:
+            status, error = "error", str(exc)
+            raise
+        finally:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            try:
+                await anyio.to_thread.run_sync(partial(
+                    _log_tool_call, name, arguments, duration_ms,
+                    status, error, result, token_hash,
+                ))
+            except Exception as exc:
+                print(f"mcp_tool_log: INSERT fehlgeschlagen: {exc}", file=sys.stderr)
+
+
+mcp = LoggedFastMCP(
     name="weltmodell",
     instructions=_INSTRUCTIONS,
     auth_server_provider=WeltOAuthProvider(),
@@ -590,7 +664,9 @@ async def welt_sql(query: str, limit: int = 500) -> dict[str, Any]:
     v_qualifiers (id, statement_id, predicate_id, value_type, value_text,
       value_number, value_datetime, object_id),
     v_sources (id, url, activity, agent, retrieved_at, statement_id — eine
-      Zeile pro Quelle-Statement-Zuordnung).
+      Zeile pro Quelle-Statement-Zuordnung),
+    v_tool_log (id, ts, tool, args, duration_ms, status, error, result_bytes,
+      token_hash — ein MCP-Tool-Call pro Zeile; eigene Nutzung analysieren).
     Erzwungen: SELECT-only (geparst), nur diese Views, 5 s Timeout,
     read-only Transaktion, Row-Cap limit. Merge-Ketten und
     deprecated-Filter musst du hier SELBST beachten (merged_into, rank)."""

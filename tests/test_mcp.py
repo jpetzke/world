@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import html
+import json
 import re
 import secrets
 from urllib.parse import parse_qs, urlparse
@@ -391,3 +392,98 @@ def test_bulk_and_fix_tools_end_to_end(mcp_client):
     d = _tool(mcp_client, at, "welt_fix_statement",
               {"statement_id": good_id, "reason": "weg", "delete": True})["structuredContent"]
     assert d["deleted"] is True
+
+
+# --- Tool-Call-Log (mcp_tool_log) --------------------------------------------
+
+
+def _log_rows():
+    from weltmodell.db import get_conn
+
+    conn = get_conn()
+    try:
+        return conn.execute("SELECT * FROM mcp_tool_log ORDER BY id").fetchall()
+    finally:
+        conn.close()
+
+
+def test_tool_call_logged(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+    before = len(_log_rows())
+
+    _tool(mcp_client, at, "welt_stats")
+
+    rows = _log_rows()
+    assert len(rows) == before + 1
+    row = rows[-1]
+    assert row["tool"] == "welt_stats"
+    assert row["status"] == "ok"
+    assert row["error"] is None
+    assert row["duration_ms"] >= 0
+    assert row["result_bytes"] > 0
+    assert row["token_hash"]
+    assert row["args"] == {}
+
+
+def test_tool_error_logged(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+
+    # Schreib-Tool ohne Verfassungs-Ack: Fehler erreicht Client UND Log
+    result = _tool(mcp_client, at, "welt_create_entity",
+                   {"type_id": "Person", "label": "Log Error Test"})
+    assert result.get("isError") is True
+
+    row = _log_rows()[-1]
+    assert row["tool"] == "welt_create_entity"
+    assert row["status"] == "error"
+    assert "welt_constitution" in row["error"]
+    assert row["args"]["label"] == "Log Error Test"
+
+
+def test_tool_args_truncated(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+
+    q = "SELECT '" + "x" * 3000 + "' AS blob"
+    result = _tool(mcp_client, at, "welt_sql", {"query": q})
+    assert result.get("isError") is not True, result
+
+    row = _log_rows()[-1]
+    assert row["args"]["_truncated"] is True
+    assert row["args"]["query"] == "…"
+    assert len(json.dumps(row["args"])) < 2048
+
+
+def test_welt_sql_reads_tool_log(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+
+    result = _tool(mcp_client, at, "welt_sql", {
+        "query": "SELECT tool, status, count(*) AS n FROM v_tool_log "
+                 "GROUP BY tool, status ORDER BY n DESC",
+    })
+    assert result.get("isError") is not True, result
+    rows = result["structuredContent"]["rows"]
+    assert any(r["tool"] == "welt_stats" for r in rows)
+
+
+def test_healthz_access_log_filtered():
+    import logging
+
+    from weltmodell.api import _HealthzFilter
+
+    def record(args):
+        return logging.LogRecord(
+            "uvicorn.access", logging.INFO, __file__, 0,
+            '%s - "%s %s HTTP/%s" %d', args, None,
+        )
+
+    f = _HealthzFilter()
+    assert f.filter(record(("127.0.0.1:1", "GET", "/healthz", "1.1", 200))) is False
+    assert f.filter(record(("127.0.0.1:1", "GET", "/api/stats", "1.1", 200))) is True
+    assert f.filter(record(None)) is True  # unerwartetes Format nie verschlucken
+
+    assert any(isinstance(fl, _HealthzFilter)
+               for fl in logging.getLogger("uvicorn.access").filters)
