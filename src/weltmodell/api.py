@@ -5,6 +5,7 @@ erzwungene Code-Pfade, nicht Konvention. Gilt für Menschen- und
 LLM-Writes gleichermaßen (Invariante 2).
 """
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -31,6 +32,21 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MiB
 
 _PROD = is_prod()
+
+
+class _HealthzFilter(logging.Filter):
+    """Hält den Healthcheck-Spam (GET /healthz, ~2/3 aller Zeilen) aus dem
+    uvicorn-Access-Log; alles andere loggt unverändert."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args  # (client, method, path, http_version, status)
+        return not (
+            isinstance(args, tuple) and len(args) == 5
+            and args[1] == "GET" and args[2] == "/healthz"
+        )
+
+
+logging.getLogger("uvicorn.access").addFilter(_HealthzFilter())
 
 _CSP = "; ".join(
     [
