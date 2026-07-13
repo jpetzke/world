@@ -20,7 +20,12 @@ import psycopg
 from .entities import canonical_id, get_entity
 from .errors import ValidationError
 from .pipeline import ingest_document
-from .registry import get_predicate, is_subtype, type_interfaces
+from .registry import (
+    get_predicate,
+    is_subtype,
+    type_interfaces,
+    unknown_predicate_message,
+)
 from .resolution import VECTOR_AUTO_MATCH_THRESHOLD, get_or_create_entity, resolve
 from .statements import commit_statement
 
@@ -34,7 +39,7 @@ def _check(
         raise ValidationError(f"Ungültige direction '{direction}'")
     pred = get_predicate(conn, predicate_id)
     if pred is None:
-        raise ValidationError(f"Unbekanntes Prädikat '{predicate_id}'")
+        raise ValidationError(unknown_predicate_message(conn, predicate_id))
     if pred["range_kind"] != "entity" or pred["cardinality"] != "n:m":
         raise ValidationError(
             f"Snapshot-Import braucht ein n:m-Entity-Prädikat — '{predicate_id}' "

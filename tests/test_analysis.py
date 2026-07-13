@@ -212,7 +212,7 @@ def test_match_fehler(conn, graph):
             patterns=[{"s": "?x", "p": "knows", "o": "?y"},
                       {"s": graph["jonas"], "p": "?x", "o": "?y"}],
         )
-    with pytest.raises(ValidationError, match="Unbekannte Prädikate"):
+    with pytest.raises(ValidationError, match="Unbekanntes Prädikat 'erfunden'"):
         analysis.match(conn, patterns=[{"s": "?a", "p": "erfunden", "o": "?b"}],
                        select=["?a"])
 

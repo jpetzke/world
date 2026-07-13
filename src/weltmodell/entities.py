@@ -10,7 +10,7 @@ import psycopg
 
 from .embeddings import get_embedder
 from .errors import NotFoundError, ValidationError, WeltmodellError
-from .registry import get_type, type_interfaces
+from .registry import get_type, type_interfaces, unknown_type_message
 
 
 def create_entity(
@@ -23,7 +23,8 @@ def create_entity(
     type_row = get_type(conn, type_id)
     if type_row is None:
         raise ValidationError(
-            f"Unbekannter Typ '{type_id}' — neue Typen nur durchs Gate (§7.1)"
+            unknown_type_message(conn, type_id)
+            + " Neue Typen nur durchs Gate (§7.1)."
         )
     if type_row["abstract"]:
         concrete = [
@@ -53,11 +54,30 @@ def create_entity(
         # vergleichbar sein (resolve/search auf abstrakte Typen wie Agent) —
         # der Typ-Filter ist SQL-Job, nicht Embedding-Job.
         embedding = get_embedder().embed(text)
-    return conn.execute(
+    # Dubletten-Warnung (nicht blockierend): exakter Label-Match desselben
+    # Typs deutet auf einen übersprungenen resolve-Schritt hin. Der Write
+    # geht durch — Widersprüche sind erlaubt — aber der Aufrufer erfährt es.
+    dups = (
+        conn.execute(
+            """SELECT id, label FROM entity
+               WHERE merged_into IS NULL AND type_id = %s
+                 AND lower(label) = lower(%s) LIMIT 3""",
+            (type_id, label),
+        ).fetchall()
+        if label
+        else []
+    )
+    row = conn.execute(
         """INSERT INTO entity (type_id, label, embedding)
            VALUES (%s, %s, %s) RETURNING id, type_id, label, merged_into, created_at""",
         (type_id, label, embedding),
     ).fetchone()
+    if dups:
+        row["warnings"] = [
+            f"mögliche Dublette: '{d['label']}' ({d['id']}) existiert bereits — "
+            "prüfe welt_resolve, ggf. welt_merge_entities" for d in dups
+        ]
+    return row
 
 
 def get_entity(conn: psycopg.Connection, entity_id: str) -> dict:
@@ -247,22 +267,34 @@ def run_bulk(
         if atomic:
             try:
                 out = do_one(conn, item)
-            except WeltmodellError as exc:
-                raise ValidationError(f"Item {i}: {exc}") from exc
+            except (WeltmodellError, psycopg.Error, KeyError) as exc:
+                raise ValidationError(f"Item {i}: {_item_error(exc)}") from exc
             ok += 1
             results.append({"index": i, "ok": True, **out})
             continue
         conn.execute(f"SAVEPOINT bulk_{i}")
         try:
             out = do_one(conn, item)
-        except WeltmodellError as exc:
+        # Auch DB-Fehler (kaputte UUID, Unique-Verletzung) und fehlende
+        # Pflichtfelder nur auf das Item zurückrollen — sonst kippt ein
+        # einziges kaputtes Item den ganzen Best-Effort-Batch.
+        except (WeltmodellError, psycopg.Error, KeyError) as exc:
             conn.execute(f"ROLLBACK TO SAVEPOINT bulk_{i}")
-            results.append({"index": i, "ok": False, "error": str(exc)})
+            results.append({"index": i, "ok": False, "error": _item_error(exc)})
             continue
         conn.execute(f"RELEASE SAVEPOINT bulk_{i}")
         ok += 1
         results.append({"index": i, "ok": True, **out})
     return {"total": len(items), "committed": ok, "results": results}
+
+
+def _item_error(exc: Exception) -> str:
+    if isinstance(exc, KeyError):
+        return f"Pflichtfeld {exc} fehlt"
+    if isinstance(exc, psycopg.Error):
+        primary = exc.diag.message_primary if exc.diag else None
+        return primary or str(exc).splitlines()[0]
+    return str(exc)
 
 
 def create_entities(

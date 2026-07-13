@@ -16,7 +16,12 @@ import psycopg
 from .embeddings import get_embedder
 from .entities import canonical_id, create_entity, get_entity
 from .errors import ValidationError
-from .registry import descendant_type_ids, get_predicate, get_type
+from .registry import (
+    descendant_type_ids,
+    get_predicate,
+    get_type,
+    unknown_type_message,
+)
 
 VECTOR_CANDIDATE_THRESHOLD = 0.80  # Kosinus-Similarity → Merge-Kandidat
 VECTOR_AUTO_MATCH_THRESHOLD = 0.93  # darüber: Pipeline nutzt Kandidat direkt
@@ -37,7 +42,7 @@ def resolve(
     if get_type(conn, type_id) is None:
         # Tippfehler-Typ würde sonst stumm null Kandidaten liefern — und der
         # Aufrufer legte im guten Glauben eine Dublette an.
-        raise ValidationError(f"Unbekannter Typ '{type_id}'")
+        raise ValidationError(unknown_type_message(conn, type_id))
     warnings: list[str] = []
     # Stufe 1: deterministische Keys
     for pred_id, value in (identifiers or {}).items():
@@ -104,6 +109,23 @@ def resolve(
             if r["similarity"] >= VECTOR_CANDIDATE_THRESHOLD
             and str(r["id"]) not in seen
         ]
+        # Keyword-Fallback wie in semantic_search: Teilnamen ("Jonas") liegen
+        # unter der Vektor-Schwelle, sind aber wörtliche Substrings — ohne
+        # diesen Schritt sähe der Aufrufer leere Kandidaten und legte Dubletten
+        # an. similarity=None markiert: Substring-Treffer, kein Merge-Signal.
+        seen |= {c["id"] for c in candidates}
+        like = conn.execute(
+            """SELECT id, label, type_id FROM entity
+               WHERE merged_into IS NULL AND label ILIKE %s
+                 AND type_id = ANY(%s)
+               LIMIT %s""",
+            (f"%{label}%", types, limit),
+        ).fetchall()
+        candidates += [
+            {**r, "id": str(r["id"]), "similarity": None}
+            for r in like
+            if str(r["id"]) not in seen
+        ]
 
     result: dict[str, Any] = {"match": None, "method": None, "candidates": candidates}
     if warnings:
@@ -127,8 +149,14 @@ def get_or_create_entity(
     res = resolve(conn, type_id=type_id, label=label, identifiers=identifiers)
     if res["match"]:
         return res["match"], False
-    if res["candidates"] and res["candidates"][0]["similarity"] >= VECTOR_AUTO_MATCH_THRESHOLD:
-        return res["candidates"][0]["id"], False
+    # Substring-Kandidaten (similarity=None) sind Hinweise, nie Auto-Match.
+    best = res["candidates"][0] if res["candidates"] else None
+    if (
+        best
+        and best["similarity"] is not None
+        and best["similarity"] >= VECTOR_AUTO_MATCH_THRESHOLD
+    ):
+        return best["id"], False
 
     entity = create_entity(conn, type_id=type_id, label=label)
     entity_id = str(entity["id"])

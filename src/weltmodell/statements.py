@@ -14,7 +14,12 @@ import psycopg
 
 from .entities import canonical_id, get_entity, refresh_entity_label, run_bulk
 from .errors import NotFoundError, ValidationError
-from .registry import get_predicate, is_subtype, type_interfaces
+from .registry import (
+    get_predicate,
+    is_subtype,
+    type_interfaces,
+    unknown_predicate_message,
+)
 
 RANKS = ("preferred", "normal", "deprecated")
 ORIGINS = ("asserted", "inferred")
@@ -102,7 +107,10 @@ def normalize_value(value: dict[str, Any]) -> dict[str, Any]:
                 raise ValidationError("value_type 'json' braucht json")
             cols["value_json"] = json.dumps(value["json"])
         case _:
-            raise ValidationError(f"Unbekannter value_type '{kind}'")
+            raise ValidationError(
+                f"Unbekannter value_type '{kind}' — erlaubt: entity, string, "
+                "number, quantity, datetime, geo, json"
+            )
     return {"value_type": kind, **cols}
 
 
@@ -124,8 +132,9 @@ def validate_statement(
     pred = get_predicate(conn, predicate_id)
     if pred is None:
         raise ValidationError(
-            f"Unbekanntes Prädikat '{predicate_id}' — der Extraktor erfindet "
-            "keine Prädikate; Vorschlag durchs Gate (§7.1)"
+            unknown_predicate_message(conn, predicate_id)
+            + " Der Extraktor erfindet keine Prädikate; Vorschlag durchs "
+            "Gate (§7.1)."
         )
 
     subject = get_entity(conn, subject_id)
@@ -326,9 +335,15 @@ def _insert_qualifier(conn: psycopg.Connection, statement_id: str, q: dict) -> N
     pred = get_predicate(conn, q["predicate_id"])
     if pred is None:
         raise ValidationError(
-            f"Unbekanntes Qualifier-Prädikat '{q['predicate_id']}' (Registry, §2.3)"
+            unknown_predicate_message(conn, q["predicate_id"])
+            + " (Qualifier, §2.3)"
         )
     cols = normalize_value(q["value"])
+    if cols.get("object_id"):
+        # Wie beim Haupt-Statement: Entity-Qualifier durch die Merge-Kette
+        # auflösen, sonst persistiert eine stale ID (merge biegt nur zum
+        # Merge-Zeitpunkt existierende Qualifier um).
+        cols["object_id"] = canonical_id(conn, cols["object_id"])
     # Festlegung (Verfassung „Qualifier-Validierung"): Qualifier validieren NUR
     # range_kind — der Domain-Check ist BEWUSST ausgesetzt, kein Zufall des
     # Codepfads. Qualifier nutzen Registry-Prädikate dual (Wikidata-Praxis:

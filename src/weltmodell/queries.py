@@ -10,7 +10,14 @@ import psycopg
 from .embeddings import get_embedder
 from .entities import canonical_id, get_entity
 from .errors import NotFoundError, ValidationError
-from .registry import descendant_type_ids
+from .registry import (
+    check_predicates,
+    descendant_type_ids,
+    get_predicate,
+    get_type,
+    unknown_predicate_message,
+    unknown_type_message,
+)
 
 # Bitemporaler Filter — EINE Definition für entity_view und query_statements,
 # damit sich Zeitreise-Semantik nie zwischen den Sichten unterscheidet:
@@ -65,6 +72,7 @@ def entity_view(
     min_confidence/rank filtern wie in query_statements: confidence >= x,
     rank exakt (ein gesetzter rank ersetzt den deprecated-Ausschluss).
     """
+    check_min_confidence(min_confidence)
     entity_id = canonical_id(conn, entity_id)
     entity = get_entity(conn, entity_id)
 
@@ -110,6 +118,16 @@ def entity_view(
     return {"entity": entity, "statements": outgoing, "incoming": incoming}
 
 
+def check_min_confidence(value: float | None) -> None:
+    """confidence ist ein Anteil in [0,1]. Aufrufer, die Prozent denken
+    (min_confidence=80), bekämen sonst überall ein stilles Leerergebnis."""
+    if value is not None and not 0.0 <= value <= 1.0:
+        raise ValidationError(
+            f"min_confidence muss zwischen 0 und 1 liegen (bekam {value}) — "
+            "Konfidenz ist ein Anteil, kein Prozentwert."
+        )
+
+
 def query_statements(
     conn: psycopg.Connection,
     *,
@@ -149,6 +167,9 @@ def query_statements(
         raise ValidationError(
             f"Ungültiges output '{output}' (erlaubt: ids, compact, full)"
         )
+    if predicate_id is not None and get_predicate(conn, predicate_id) is None:
+        raise ValidationError(unknown_predicate_message(conn, predicate_id))
+    check_min_confidence(min_confidence)
 
     params: dict[str, Any] = {
         "subject_id": canonical_id(conn, subject_id) if subject_id else None,
@@ -367,6 +388,11 @@ def neighborhood(
         raise ValidationError(
             f"Ungültiges output '{output}' (erlaubt: ids, compact, full)"
         )
+    if max_depth < 1:
+        raise ValidationError("max_depth muss >= 1 sein")
+    max_depth = min(max_depth, 6)  # wie welt_path: Deckel gegen Voll-Traversal
+    check_predicates(conn, predicates)
+    check_min_confidence(min_confidence)
     start_id = canonical_id(conn, start_id)
     edge_filter = """
                AND ((%(rank)s::text IS NOT NULL AND s.rank = %(rank)s)
@@ -452,10 +478,15 @@ def list_entities(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
+    types: list[str] | None = None
+    if type_id is not None:
+        if get_type(conn, type_id) is None:
+            raise ValidationError(unknown_type_message(conn, type_id))
+        types = descendant_type_ids(conn, type_id)  # subtyp-fähig wie welt_search
     where = "merged_into IS NULL"
     params: dict[str, Any] = {"limit": limit, "offset": offset,
-                              "type_id": type_id, "q": f"%{q}%" if q else None}
-    where += " AND (%(type_id)s::text IS NULL OR type_id = %(type_id)s)"
+                              "types": types, "q": f"%{q}%" if q else None}
+    where += " AND (%(types)s::text[] IS NULL OR type_id = ANY(%(types)s))"
     where += " AND (%(q)s::text IS NULL OR label ILIKE %(q)s)"
     total = conn.execute(
         f"SELECT count(*) AS n FROM entity WHERE {where}", params
@@ -511,12 +542,17 @@ def get_source(conn: psycopg.Connection, source_id: str) -> dict[str, Any]:
            ORDER BY s.system_from DESC LIMIT 200""",
         (source_id,),
     ).fetchall()
+    # Ehrliches total statt stiller 200er-Kappung (Bulk-Importe liegen drüber)
+    total = conn.execute(
+        "SELECT count(*) AS n FROM reference WHERE source_id = %s", (source_id,)
+    ).fetchone()["n"]
     file_meta = conn.execute(
         """SELECT filename, mime, size_bytes, sha256, created_at
            FROM source_file WHERE source_id = %s""",
         (source_id,),
     ).fetchone()
-    return {"source": doc, "statements": statements, "file": file_meta}
+    return {"source": doc, "statements": statements,
+            "statements_total": total, "file": file_meta}
 
 
 def stats(conn: psycopg.Connection) -> dict[str, Any]:
@@ -587,7 +623,7 @@ def semantic_search(
     if type_id is not None and not conn.execute(
         "SELECT 1 FROM entity_type WHERE id = %s", (type_id,)
     ).fetchone():
-        raise ValidationError(f"Unbekannter Typ '{type_id}'")
+        raise ValidationError(unknown_type_message(conn, type_id))
     types = descendant_type_ids(conn, type_id) if type_id else None
     embedding = get_embedder().embed(query)
     rows = conn.execute(

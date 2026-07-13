@@ -545,3 +545,89 @@ def test_fix_zaehlt_sich_nicht_als_kardinalitaetskonflikt(conn, source_id):
         value={"type": "string", "text": "kardfix2"},
     )
     assert fixed["flags"] == []
+
+
+def test_unknown_predicate_error_suggests_candidates(conn, source_id):
+    person = str(create_entity(conn, type_id="Person", label="Vorschlag Test")["id"])
+    with pytest.raises(ValidationError) as exc:
+        commit_statement(
+            conn, subject_id=person, predicate_id="Name",
+            value={"type": "string", "text": "x"}, source_ids=[source_id],
+        )
+    assert "'name'" in str(exc.value)  # meintest du 'name'?
+
+
+# --- Audit-Fixes: Fehlertexte, Qualifier, Bulk-Robustheit --------------------
+
+
+def test_value_type_error_lists_valid_kinds(conn, person, source_id):
+    with pytest.raises(ValidationError, match="string"):
+        commit_statement(
+            conn, subject_id=person, predicate_id="name",
+            value={"type": "str", "text": "x"}, source_ids=[source_id],
+        )
+
+
+def test_qualifier_unknown_predicate_suggests(conn, person, source_id):
+    other = str(create_entity(conn, type_id="Person", label="Qual Vorschlag")["id"])
+    with pytest.raises(ValidationError, match="'beginn'"):
+        commit_statement(
+            conn, subject_id=person, predicate_id="knows",
+            value={"type": "entity", "object_id": other}, source_ids=[source_id],
+            qualifiers=[{"predicate_id": "Beginn",
+                         "value": {"type": "datetime", "datetime": "2020-01-01"}}],
+        )
+
+
+def test_qualifier_object_id_canonicalized(conn, person, source_id):
+    from weltmodell.resolution import merge_entity
+
+    a = str(create_entity(conn, type_id="Person", label="Qual Merge Quelle")["id"])
+    b = str(create_entity(conn, type_id="Person", label="Qual Merge Ziel")["id"])
+    merge_entity(conn, a, b)
+    other = str(create_entity(conn, type_id="Person", label="Qual Kante")["id"])
+    row = commit_statement(
+        conn, subject_id=person, predicate_id="knows",
+        value={"type": "entity", "object_id": other}, source_ids=[source_id],
+        qualifiers=[{"predicate_id": "knows",
+                     "value": {"type": "entity", "object_id": a}}],
+    )
+    q = conn.execute("SELECT object_id FROM qualifier WHERE statement_id = %s",
+                     (row["id"],)).fetchone()
+    assert str(q["object_id"]) == b
+
+
+def test_bulk_best_effort_survives_db_error(conn, person, source_id):
+    res = commit_statements(conn, items=[
+        {"subject_id": person, "predicate_id": "knows",
+         "value": {"type": "entity", "object_id": "keine-uuid"},
+         "source_ids": [source_id]},
+        {"subject_id": person, "predicate_id": "name",
+         "value": {"type": "string", "text": "Bulk Survivor"},
+         "source_ids": [source_id]},
+    ], atomic=False)
+    assert res["committed"] == 1
+    assert res["results"][0]["ok"] is False
+    assert res["results"][1]["ok"] is True
+
+
+def test_bulk_atomic_db_error_names_index(conn, person, source_id):
+    with pytest.raises(ValidationError, match="Item 1"):
+        commit_statements(conn, items=[
+            {"subject_id": person, "predicate_id": "name",
+             "value": {"type": "string", "text": "ok"}, "source_ids": [source_id]},
+            {"subject_id": person, "predicate_id": "knows",
+             "value": {"type": "entity", "object_id": "keine-uuid"},
+             "source_ids": [source_id]},
+        ], atomic=True)
+
+
+def test_bulk_missing_field_names_item(conn):
+    with pytest.raises(ValidationError, match="Item 0"):
+        commit_statements(conn, items=[{"predicate_id": "name"}], atomic=True)
+
+
+def test_create_entity_warns_on_exact_duplicate(conn):
+    create_entity(conn, type_id="Person", label="Dublette Warnung")
+    second = create_entity(conn, type_id="Person", label="dublette warnung")
+    assert any("Dublette" in w for w in second.get("warnings", []))

@@ -211,3 +211,34 @@ def test_resolve_und_search_meckern_bei_unbekanntem_typ(conn):
         resolve(conn, type_id="Quatschtyp", label="Egal")
     with pytest.raises(ValidationError, match="Unbekannter Typ"):
         semantic_search(conn, "Egal", type_id="Quatschtyp")
+
+
+def test_substring_keyword_candidates(conn):
+    # Teilname unter der Vektor-Schwelle: Keyword-Match muss ihn liefern
+    # (Vorbild: welt_search-ILIKE-Fallback; Bug: "Jonas" fand "Jonas Petzke" nicht)
+    create_entity(conn, type_id="Person", label="Jonas Petzke")
+    res = resolve(conn, type_id="Person", label="Jonas")
+    assert res["match"] is None
+    labels = [c["label"] for c in res["candidates"]]
+    assert "Jonas Petzke" in labels
+
+
+def test_substring_respects_type_filter(conn):
+    create_entity(conn, type_id="SocialMediaAccount", label="jonas_keyword_acc")
+    res = resolve(conn, type_id="Person", label="jonas_keyword")
+    assert all(c["type_id"] == "Person" for c in res["candidates"])
+
+
+def test_unknown_type_error_suggests_candidates(conn):
+    with pytest.raises(ValidationError) as exc:
+        resolve(conn, type_id="person", label="Wer Auch Immer")
+    assert "'Person'" in str(exc.value)  # meintest du 'Person'?
+
+
+def test_get_or_create_ignores_keyword_candidates_for_automatch(conn, source_id):
+    # Substring-Kandidat (similarity=None) darf weder crashen noch auto-matchen
+    create_entity(conn, type_id="Person", label="Keyword Automatch Petzke")
+    eid, created = get_or_create_entity(
+        conn, type_id="Person", label="Automatch", source_ids=[source_id],
+    )
+    assert created  # neuer Anker, kein stiller Match auf den Substring-Treffer

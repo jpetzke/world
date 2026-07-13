@@ -312,17 +312,39 @@ async def welt_stats() -> dict[str, Any]:
     return await _run(queries.stats)
 
 
+# Kompakt-Sicht (Default): nur die Felder, die ein Agent zum korrekten
+# Schreiben braucht. Volle Registry-Zeilen (Labels, Wikidata/schema.org-
+# Mappings) nur mit full=true — halbiert die Antwortgröße.
+_VOCAB_FIELDS = {
+    "types": ("id", "parent_id", "kind", "abstract", "label_predicate"),
+    "predicates": ("id", "domain_type", "domain_interface", "range_kind",
+                   "range_type", "cardinality", "inverse_id", "identifying"),
+    "interfaces": ("id",),
+}
+
+
 @mcp.tool()
 async def welt_vocabulary(
     part: Literal["all", "types", "predicates", "interfaces"] = "all",
+    full: bool = False,
 ) -> dict[str, Any]:
     """Registry-Vokabular: erlaubte Typen (mit Parent/kind), Prädikate (mit
     Domain, Range, Cardinality, identifying) und Interfaces. Nur dieses
     Vokabular darf in Statements verwendet werden — fehlt etwas, Proposal
-    einreichen statt improvisieren."""
+    einreichen statt improvisieren. Default kompakt (Schreib-relevante
+    Felder); full=true liefert alle Registry-Spalten (Labels, Wikidata-PIDs)."""
 
     def q(conn):
         vocab = registry.vocabulary(conn)
+        if not full:
+            vocab = {
+                k: [
+                    {f: row[f] for f in _VOCAB_FIELDS[k] if f in row}
+                    for row in rows
+                ]
+                if k in _VOCAB_FIELDS else rows
+                for k, rows in vocab.items()
+            }
         if part != "all":
             return {part: vocab[part]}
         return vocab
@@ -728,10 +750,16 @@ async def welt_create_source(
     'scrape:instagram', 'chat:recherche'), agent den Urheber (z. B.
     'mcp:claude'). raw kann den Original-Payload archivieren."""
     _require_write()
-    return await _run(
-        partial(pipeline.ingest_document, raw=raw or {}, url=url,
-                activity=activity, agent=agent, retrieved_at=retrieved_at)
-    )
+
+    def q(conn):
+        doc = pipeline.ingest_document(
+            conn, raw=raw or {}, url=url, activity=activity, agent=agent,
+            retrieved_at=retrieved_at,
+        )
+        # Kein raw-Echo: der Aufrufer hat das Payload gerade selbst gesendet.
+        return {k: v for k, v in doc.items() if k != "raw"}
+
+    return await _run(q)
 
 
 @mcp.tool()

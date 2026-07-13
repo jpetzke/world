@@ -4,6 +4,7 @@ Person → Account → Account → Person über eine einzige Kanten-Tabelle."""
 import pytest
 
 from weltmodell.entities import create_entity
+from weltmodell.errors import ValidationError
 from weltmodell.queries import neighborhood, semantic_search
 from weltmodell.statements import commit_statement
 
@@ -244,3 +245,51 @@ def test_neighborhood_read_filter(conn, source_id):
     nb = neighborhood(conn, a, max_depth=1, min_confidence=0.5)
     ids = {str(n["id"]) for n in nb["nodes"]}
     assert c in ids and b not in ids
+
+
+# --- Audit-Fixes: Validierung statt stiller Leerergebnisse -------------------
+
+
+def test_query_unknown_predicate_raises(conn):
+    from weltmodell.queries import query_statements
+
+    with pytest.raises(ValidationError, match="Unbekanntes Prädikat"):
+        query_statements(conn, predicate_id="nam")
+
+
+def test_query_min_confidence_range_checked(conn):
+    from weltmodell.queries import query_statements
+
+    with pytest.raises(ValidationError, match="min_confidence"):
+        query_statements(conn, min_confidence=80)
+
+
+def test_traverse_unknown_predicate_raises(conn, source_id):
+    from weltmodell.queries import neighborhood
+
+    start = _entity(conn, "Person", "Traverse Validierung")
+    with pytest.raises(ValidationError, match="Unbekannte"):
+        neighborhood(conn, start, predicates=["folgt_tippfehler"])
+    with pytest.raises(ValidationError, match="min_confidence"):
+        neighborhood(conn, start, min_confidence=95)
+
+
+def test_list_entities_subtype_and_suggestion(conn):
+    from weltmodell.entities import create_entity
+    from weltmodell.queries import list_entities
+
+    create_entity(conn, type_id="Person", label="Subtyp Listen Test")
+    res = list_entities(conn, type_id="Agent")
+    assert any(i["label"] == "Subtyp Listen Test" for i in res["items"])
+    with pytest.raises(ValidationError, match="'Person'"):
+        list_entities(conn, type_id="person")
+
+
+def test_get_source_reports_total(conn, source_id):
+    from weltmodell.queries import get_source
+
+    a = _entity(conn, "Person", "Source Total A")
+    b = _entity(conn, "Person", "Source Total B")
+    _link(conn, a, "knows", b, source_id)
+    res = get_source(conn, source_id)
+    assert res["statements_total"] >= len(res["statements"]) > 0

@@ -12,7 +12,7 @@ from typing import Any
 import psycopg
 from psycopg import sql
 
-from .errors import NotFoundError, RegistryError
+from .errors import NotFoundError, RegistryError, ValidationError
 
 RANGE_KINDS = ("entity", "string", "number", "datetime", "geo", "json", "quantity")
 
@@ -30,6 +30,58 @@ def get_predicate(conn: psycopg.Connection, predicate_id: str) -> dict | None:
     return conn.execute(
         "SELECT * FROM predicate WHERE id = %s", (predicate_id,)
     ).fetchone()
+
+
+def _id_suggestions(conn: psycopg.Connection, table: str, wrong_id: str) -> list[str]:
+    rows = conn.execute(
+        sql.SQL(
+            """SELECT id FROM {}
+               WHERE lower(id) = lower(%(q)s)
+                  OR id ILIKE '%%' || %(q)s || '%%'
+                  OR %(q)s ILIKE '%%' || id || '%%'
+               ORDER BY (lower(id) = lower(%(q)s)) DESC, length(id) LIMIT 3"""
+        ).format(sql.Identifier(table)),
+        {"q": wrong_id},
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
+def unknown_type_message(conn: psycopg.Connection, type_id: str) -> str:
+    """Fehlertext mit Kandidaten: LLM-Aufrufer schicken plausible Varianten
+    ("person", "SocialAccount") — ohne Vorschlag kostet jeder Tippfehler einen
+    blinden Retry-Roundtrip."""
+    msg = f"Unbekannter Typ '{type_id}'"
+    hints = _id_suggestions(conn, "entity_type", type_id)
+    if hints:
+        msg += " — meintest du " + ", ".join(f"'{h}'" for h in hints) + "?"
+    return msg
+
+
+def unknown_predicate_message(conn: psycopg.Connection, predicate_id: str) -> str:
+    msg = f"Unbekanntes Prädikat '{predicate_id}'"
+    hints = _id_suggestions(conn, "predicate", predicate_id)
+    if hints:
+        msg += " — meintest du " + ", ".join(f"'{h}'" for h in hints) + "?"
+    return msg
+
+
+def check_predicates(conn: psycopg.Connection, predicates: list[str] | None) -> None:
+    """Prädikat-Listen vor Filter-Queries prüfen: ein Tippfehler-Prädikat
+    lieferte sonst ein stilles Leerergebnis — für den Aufrufer ununterscheidbar
+    von 'diese Fakten existieren nicht'."""
+    if not predicates:
+        return
+    known = {
+        r["id"]
+        for r in conn.execute(
+            "SELECT id FROM predicate WHERE id = ANY(%s)", (predicates,)
+        ).fetchall()
+    }
+    unknown = [p for p in predicates if p not in known]
+    if unknown:
+        raise ValidationError(
+            "; ".join(unknown_predicate_message(conn, p) for p in unknown)
+        )
 
 
 def list_types(conn: psycopg.Connection) -> list[dict]:

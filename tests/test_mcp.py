@@ -487,3 +487,29 @@ def test_healthz_access_log_filtered():
 
     assert any(isinstance(fl, _HealthzFilter)
                for fl in logging.getLogger("uvicorn.access").filters)
+
+
+def test_vocabulary_compact_default(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+    compact = _tool(mcp_client, at, "welt_vocabulary",
+                    {"part": "predicates"})["structuredContent"]
+    full = _tool(mcp_client, at, "welt_vocabulary",
+                 {"part": "predicates", "full": True})["structuredContent"]
+    assert len(json.dumps(compact)) < len(json.dumps(full))
+    assert "wikidata_pid" not in json.dumps(compact)
+    p = compact["predicates"][0]
+    assert {"id", "range_kind"} <= set(p)
+
+
+def test_create_source_omits_raw_echo(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+    _tool(mcp_client, at, "welt_constitution")
+    result = _tool(mcp_client, at, "welt_create_source", {
+        "activity": "test:raw-echo", "agent": "pytest",
+        "raw": {"blob": "x" * 5000},
+    })
+    sc = result["structuredContent"]
+    assert sc["id"]
+    assert "raw" not in sc

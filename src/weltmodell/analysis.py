@@ -23,8 +23,8 @@ from sqlglot import expressions as exp
 
 from .entities import canonical_id
 from .errors import ValidationError
-from .queries import _TIME_FILTER, _attach_qualifiers_and_references
-from .registry import descendant_type_ids
+from .queries import _TIME_FILTER, _attach_qualifiers_and_references, check_min_confidence
+from .registry import check_predicates, descendant_type_ids, unknown_type_message
 
 OUTPUTS = ("ids", "compact", "full")
 IDS_MAX = 5000
@@ -71,20 +71,7 @@ def _effective_limit(limit: int, output: str) -> int:
 
 
 def _check_predicates(conn: psycopg.Connection, predicates: list[str] | None) -> None:
-    if not predicates:
-        return
-    known = {
-        r["id"]
-        for r in conn.execute(
-            "SELECT id FROM predicate WHERE id = ANY(%s)", (predicates,)
-        ).fetchall()
-    }
-    unknown = [p for p in predicates if p not in known]
-    if unknown:
-        raise ValidationError(
-            f"Unbekannte Prädikate: {', '.join(unknown)} — "
-            "welt_vocabulary zeigt das erlaubte Vokabular."
-        )
+    check_predicates(conn, predicates)  # zentral, mit „meintest du …?"-Vorschlag
 
 
 def _load_edges(
@@ -94,6 +81,7 @@ def _load_edges(
     min_confidence: float | None = None,
 ) -> list[dict[str, Any]]:
     _check_predicates(conn, predicates)
+    check_min_confidence(min_confidence)
     return conn.execute(
         _EDGES_SQL, {"preds": predicates, "min_confidence": min_confidence}
     ).fetchall()
@@ -238,6 +226,7 @@ def match(
         raise ValidationError("select muss mindestens eine Variable nennen")
     if offset < 0:
         raise ValidationError("offset muss >= 0 sein")
+    check_min_confidence(min_confidence)
     eff_limit = _effective_limit(limit, output)
 
     parsed: list[dict[str, tuple[str, Any]]] = []
@@ -396,6 +385,7 @@ def set_operation(
             "valid_at": q.get("valid_at"),
             "system_at": None,
         }
+        check_min_confidence(params["min_confidence"])
         if params["predicate_id"]:
             _check_predicates(conn, [params["predicate_id"]])
         rows = conn.execute(
@@ -451,6 +441,7 @@ def paths(
         raise ValidationError("max_depth muss >= 1 sein")
     if max_paths < 1:
         raise ValidationError("max_paths muss >= 1 sein")
+    max_paths = min(max_paths, 500)  # Deckel wie max_depth: kein Pfad-Dump
     max_depth = min(max_depth, 6)
     start = _canonical(conn, start_id)
     end = _canonical(conn, end_id)
@@ -625,7 +616,7 @@ def rank_entities(
         if not conn.execute(
             "SELECT 1 FROM entity_type WHERE id = %s", (type_id,)
         ).fetchone():
-            raise ValidationError(f"Unbekannter Typ '{type_id}'")
+            raise ValidationError(unknown_type_message(conn, type_id))
         allowed_types = descendant_type_ids(conn, type_id)
 
     edges = _load_edges(conn, predicates=predicates)

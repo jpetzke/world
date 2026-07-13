@@ -1,5 +1,23 @@
 # Changelog
 
+## MCP-Server: Tool-Call-Log + Agent-Ergonomie
+
+- **Tool-Call-Log** (Migration 0021): jeder MCP-Call landet mit Tool, Args
+  (gekürzt), Dauer, Status, Antwortgröße und Token-Hash in `mcp_tool_log`;
+  Auswertung per `welt_sql` über die Whitelist-View `v_tool_log`. Healthcheck-
+  Spam (`GET /healthz`) ist aus dem uvicorn-Access-Log gefiltert.
+- **Audit-Fixes für LLM-Agenten** (Befund: Log-Analyse + Tool-Audit):
+  `welt_resolve` findet Teilnamen jetzt per Keyword-Fallback („Jonas" →
+  „Jonas Petzke"); unbekannte Typen/Prädikate antworten mit „meintest du …?";
+  `welt_query`/`welt_traverse` validieren Prädikate statt still leer zu
+  liefern; `min_confidence` > 1 wird als Prozent-Verwechslung abgewiesen;
+  `welt_entities` ist subtyp-fähig; Bulk-Tools überleben DB-Fehler pro Item
+  (Best-Effort) und nennen den Item-Index; `welt_vocabulary` ist per Default
+  kompakt (`full=true` für alles); `welt_create_source` echot `raw` nicht
+  zurück; `welt_source` meldet `statements_total`; `welt_create_entity` warnt
+  bei exaktem Label-Duplikat; Entity-Qualifier werden durch die Merge-Kette
+  kanonisiert.
+
 ## WorldAI — agentischer Chat über dem Knowledge Graph (/ai)
 
 Web-UI unter `/ai` (gleiche Domain, gleiches Deployment, kein neuer
