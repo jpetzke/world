@@ -1,7 +1,8 @@
 import type {
   ApiKey, ApiKeyScope, Entity, EntityListItem, EntityView,
   FollowerListCommitResult, FollowerListPreview, FollowerRowIn, GraphPath,
-  GraphSnapshot, Neighborhood, PipelineReport, Proposals, ResolveResult,
+  GraphSnapshot, InstagramCommitResult, InstagramPreviewResult,
+  Neighborhood, PipelineReport, Proposals, ResolveResult,
   SearchHit, Skeleton, SourceDetail, SourceDoc, SourceFileMeta,
   SourceListItem, Statement, Stats, TimelineItem, ValuePayload, Vocabulary,
 } from './types'
@@ -151,6 +152,17 @@ export const api = {
     rows: FollowerRowIn[]
     observed_at?: string | null
   }) => req<FollowerListCommitResult>('/ingest/follower-list/commit', post(body)),
+
+  instagramPreview: (files: File[]) => {
+    const form = new FormData()
+    for (const f of files) form.append('files', f)
+    return req<InstagramPreviewResult>('/ingest/instagram/preview', { method: 'POST', body: form })
+  },
+  instagramCommit: (files: File[]) => {
+    const form = new FormData()
+    for (const f of files) form.append('files', f)
+    return req<InstagramCommitResult>('/ingest/instagram/commit', { method: 'POST', body: form })
+  },
 
   ingest: (body: {
     activity: string

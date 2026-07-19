@@ -319,6 +319,72 @@ export interface FollowerListCommitResult {
   skipped_invalid: number
 }
 
+// --- Instagram-JSON-Upload (Scraper-Format) ----------------------------------
+
+export interface InstagramFilePreview {
+  filename: string
+  error?: string
+  owner_handle?: string
+  owner_exists?: boolean
+  direction?: 'followers' | 'following'
+  captured_at?: string | null
+  status?: string | null
+  expected_total?: number | null
+  rows_total?: number
+  valid?: number
+  invalid?: number
+  accounts_new?: number
+  accounts_existing?: number
+  follows_new?: number
+  follows_confirmed?: number
+}
+
+export interface InstagramPreviewResult {
+  files: InstagramFilePreview[]
+  totals: {
+    files: number
+    files_failed: number
+    rows_total: number
+    valid: number
+    invalid: number
+    accounts_new: number
+    accounts_existing: number
+    follows_new: number
+    follows_confirmed: number
+  }
+}
+
+export interface InstagramFileCommit {
+  filename: string
+  error?: string
+  source_id?: string
+  owner_handle?: string
+  owner_created?: boolean
+  direction?: 'followers' | 'following'
+  captured_at?: string | null
+  status?: string | null
+  expected_total?: number | null
+  rows_total?: number
+  accounts_created?: number
+  follows_created?: number
+  follows_confirmed?: number
+  skipped_invalid?: number
+  skipped_conflict?: number
+}
+
+export interface InstagramCommitResult {
+  files: InstagramFileCommit[]
+  totals: {
+    files: number
+    files_failed: number
+    accounts_created: number
+    follows_created: number
+    follows_confirmed: number
+    skipped_invalid: number
+    skipped_conflict: number
+  }
+}
+
 export type ApiKeyScope = 'read' | 'write' | 'admin'
 
 export interface ApiKey {

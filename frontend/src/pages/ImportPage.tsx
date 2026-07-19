@@ -1,7 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { api } from '../api/client'
-import type { FollowerListCommitResult, FollowerListPreview, SearchHit } from '../api/types'
+import type {
+  FollowerListCommitResult, FollowerListPreview,
+  InstagramCommitResult, InstagramPreviewResult, SearchHit,
+} from '../api/types'
 import { ErrorBox, Field, OkBox, PageHead } from '../components/bits'
 import { EntityAutocomplete } from '../components/EntityAutocomplete'
 import { mergeIntoPrevious, parseFollowerList, type ParsedRow } from '../lib/followerListParser'
@@ -108,6 +111,8 @@ export function ImportPage() {
         title="Follower-Listen-Import"
         sub="Instagram-Follower/Following-Liste pasten (HTML aus den DevTools oder Select-All-Text) — parsen, prüfen, eintragen."
       />
+
+      <InstagramJsonUpload />
 
       <div className="panel">
         <Field label="Account (wessen Liste ist das?)">
@@ -230,6 +235,159 @@ export function ImportPage() {
             {commit.isPending ? 'Trage ein …' : `${committable.length} Einträge eintragen`}
           </button>
         </div>
+      )}
+    </div>
+  )
+}
+
+function fmtDateTime(iso?: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
+/** Bulk-Upload der Scraper-JSON-Dateien (metadata + users[]). Die Dateien sind
+ *  selbstbeschreibend — Owner, Richtung und Zeit stehen in metadata, es wird
+ *  nichts manuell gewählt. Erst Prüfen (read-only), dann alles eintragen. */
+function InstagramJsonUpload() {
+  const queryClient = useQueryClient()
+  const [files, setFiles] = useState<File[]>([])
+  const [dragover, setDragover] = useState(false)
+  const [result, setResult] = useState<InstagramCommitResult | null>(null)
+
+  const preview = useMutation({ mutationFn: () => api.instagramPreview(files) })
+  const commit = useMutation({
+    mutationFn: () => api.instagramCommit(files),
+    onSuccess: (data) => {
+      setResult(data)
+      preview.reset()
+      setFiles([])
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
+      queryClient.invalidateQueries({ queryKey: ['entities'] })
+      queryClient.invalidateQueries({ queryKey: ['entity'] })
+    },
+  })
+
+  const pick = (list: FileList | null) => {
+    setFiles(list ? Array.from(list).filter((f) => f.name.endsWith('.json')) : [])
+    setResult(null)
+    preview.reset()
+    commit.reset()
+  }
+
+  const rows: InstagramPreviewResult['files'] = preview.data?.files ?? []
+  const totals = preview.data?.totals
+
+  return (
+    <div className="panel">
+      <PageHead
+        eyebrow="Ingest"
+        title="Instagram-JSON-Upload"
+        sub="Die Scraper-Dateien (…_followers/following_*.json) alle auf einmal reinwerfen — Owner, Richtung und Aufnahmezeit werden aus den Dateien gelesen. Leere/partielle Dateien sind ok."
+      />
+
+      <div
+        className={dragover ? 'dropzone on' : 'dropzone'}
+        onDragOver={(e) => { e.preventDefault(); setDragover(true) }}
+        onDragLeave={() => setDragover(false)}
+        onDrop={(e) => { e.preventDefault(); setDragover(false); pick(e.dataTransfer.files) }}
+      >
+        <input
+          id="ig-json-input"
+          type="file"
+          accept=".json,application/json"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => pick(e.target.files)}
+        />
+        <label htmlFor="ig-json-input" className="primary" style={{ cursor: 'pointer' }}>
+          Dateien wählen …
+        </label>
+        <span className="muted small"> oder hierher ziehen</span>
+        {files.length > 0 && (
+          <p className="small">
+            <strong>{files.length}</strong> Datei(en) gewählt: {files.map((f) => f.name).join(', ')}
+          </p>
+        )}
+      </div>
+
+      <button
+        type="button"
+        className="primary"
+        disabled={files.length === 0 || preview.isPending}
+        onClick={() => preview.mutate()}
+      >
+        {preview.isPending ? 'Prüfe …' : `${files.length || ''} Datei(en) prüfen`}
+      </button>
+      <ErrorBox error={preview.error} />
+
+      {result && (
+        <OkBox>
+          Eingetragen aus {result.totals.files - result.totals.files_failed} Datei(en):{' '}
+          {result.totals.accounts_created} neue Accounts, {result.totals.follows_created} neue
+          Beziehungen, {result.totals.follows_confirmed} re-bestätigt
+          {result.totals.skipped_invalid > 0 && <>, {result.totals.skipped_invalid} ungültig</>}
+          {result.totals.skipped_conflict > 0 && <>, {result.totals.skipped_conflict} Konflikt</>}
+          {result.totals.files_failed > 0 && <>. {result.totals.files_failed} Datei(en) fehlerhaft</>}.
+        </OkBox>
+      )}
+
+      {totals && (
+        <>
+          <p className="small">
+            <strong>{totals.files}</strong> Datei(en){totals.files_failed > 0 && <> · <span className="status-invalid">{totals.files_failed} fehlerhaft</span></>} ·{' '}
+            <span className="status-new_account">{totals.accounts_new} neue Accounts</span> ·{' '}
+            <span className="status-new_follow">{totals.follows_new} neue Beziehungen</span> ·{' '}
+            <span className="status-confirmed">{totals.follows_confirmed} schon bestätigt</span>
+          </p>
+          <div style={{ overflowX: 'auto', maxHeight: '55vh', overflowY: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Datei</th>
+                  <th>Owner</th>
+                  <th>Richtung</th>
+                  <th>Aufgenommen</th>
+                  <th>Status</th>
+                  <th>Rows</th>
+                  <th>Accounts (neu/bekannt)</th>
+                  <th>Follows (neu/best.)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((f) => f.error ? (
+                  <tr key={f.filename} className="muted">
+                    <td className="mono">{f.filename}</td>
+                    <td colSpan={7}><span className="chip status-invalid">Fehler</span> {f.error}</td>
+                  </tr>
+                ) : (
+                  <tr key={f.filename}>
+                    <td className="mono">{f.filename}</td>
+                    <td>
+                      {f.owner_handle}
+                      {!f.owner_exists && <span className="chip status-new_account"> neu</span>}
+                    </td>
+                    <td>{f.direction === 'followers' ? 'Follower' : 'Following'}</td>
+                    <td className="small">{fmtDateTime(f.captured_at)}</td>
+                    <td className="small">{f.status ?? '—'}</td>
+                    <td>{f.valid}{f.invalid ? <span className="muted"> (+{f.invalid} ungültig)</span> : null}</td>
+                    <td>{f.accounts_new} / {f.accounts_existing}</td>
+                    <td>{f.follows_new} / {f.follows_confirmed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ErrorBox error={commit.error} />
+          <button
+            type="button"
+            className="primary"
+            disabled={commit.isPending || (totals.accounts_new + totals.follows_new + totals.follows_confirmed) === 0}
+            onClick={() => commit.mutate()}
+          >
+            {commit.isPending ? 'Trage ein …' : 'Alle Dateien eintragen'}
+          </button>
+        </>
       )}
     </div>
   )
