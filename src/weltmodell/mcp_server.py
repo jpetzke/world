@@ -415,13 +415,15 @@ async def welt_entity(
     min_confidence: float | None = None,
     rank: Literal["preferred", "normal", "deprecated"] | None = None,
     statement_limit: int = 200,
+    output: Literal["compact", "full"] = "compact",
 ) -> dict[str, Any]:
-    """Vollsicht einer Entity: ausgehende Statements (mit Qualifiern +
-    Quellen) und eingehende Statements. Zeitreisen: valid_at = „was war am
-    Datum D wahr?", system_at = „was glaubte ich am Datum D?" (ISO-Datetime).
-    min_confidence/rank filtern wie in welt_query (rank exakt).
-    statement_limit kappt beide Listen; statements_total/incoming_total
-    nennen die echte Zahl (Hub-Entities sprengen sonst den Kontext)."""
+    """Vollsicht einer Entity: ausgehende und eingehende Statements.
+    Zeitreisen: valid_at = „was war am Datum D wahr?", system_at = „was
+    glaubte ich am Datum D?" (ISO-Datetime). min_confidence/rank filtern
+    wie in welt_query (rank exakt). statement_limit kappt beide Listen;
+    statements_total/incoming_total nennen die echte Zahl (Hub-Entities
+    sprengen sonst den Kontext). output=compact (Default) lässt Qualifier
+    + Quellen weg; output=full nur, wenn Provenance wirklich gebraucht wird."""
     if statement_limit < 1:
         raise ToolError("statement_limit muss >= 1 sein")
 
@@ -429,7 +431,7 @@ async def welt_entity(
         view = queries.entity_view(
             conn, entity_id=entity_id, system_at=system_at, valid_at=valid_at,
             include_deprecated=include_deprecated,
-            min_confidence=min_confidence, rank=rank,
+            min_confidence=min_confidence, rank=rank, output=output,
         )
         view["statements_total"] = len(view["statements"])
         view["incoming_total"] = len(view["incoming"])

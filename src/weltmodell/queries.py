@@ -61,6 +61,7 @@ def entity_view(
     include_deprecated: bool = False,
     min_confidence: float | None = None,
     rank: str | None = None,
+    output: str = "full",
 ) -> dict[str, Any]:
     """Entity + Statements. Beantwortet beide §4-Fragen:
 
@@ -110,7 +111,11 @@ def entity_view(
         statement_sql.format(direction="object_id"), params
     ).fetchall()
 
-    _attach_qualifiers_and_references(conn, outgoing)
+    if output == "full":
+        _attach_qualifiers_and_references(conn, outgoing)
+    else:
+        for s in outgoing:
+            s.pop("value_geo", None)
 
     for s in incoming:
         s.pop("value_geo", None)

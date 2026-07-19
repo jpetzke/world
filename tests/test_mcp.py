@@ -534,3 +534,28 @@ def test_entity_view_statement_cap(mcp_client):
     assert len(view["statements"]) == 2
     assert view["statements_total"] >= 3
     assert "incoming_total" in view
+
+
+def test_entity_view_compact_default(mcp_client):
+    _, _, _, tokens = _dance(mcp_client)
+    at = tokens["access_token"]
+    _tool(mcp_client, at, "welt_constitution")
+    ent = _tool(mcp_client, at, "welt_create_entity",
+                {"type_id": "Person", "label": "Compact Person"})["structuredContent"]
+    src = _tool(mcp_client, at, "welt_create_source", {
+        "activity": "test:compact", "agent": "pytest"})["structuredContent"]
+    _tool(mcp_client, at, "welt_commit_statement", {
+        "subject_id": ent["id"], "predicate_id": "alias",
+        "value": {"type": "string", "text": "CompactAlias"},
+        "source_ids": [src["id"]],
+    })
+    # Default compact: keine Qualifier/Quellen pro Statement
+    view = _tool(mcp_client, at, "welt_entity",
+                 {"entity_id": ent["id"]})["structuredContent"]
+    assert view["statements"]
+    assert all("references" not in s and "qualifiers" not in s
+               for s in view["statements"])
+    # output=full liefert Provenance wie bisher
+    full = _tool(mcp_client, at, "welt_entity", {
+        "entity_id": ent["id"], "output": "full"})["structuredContent"]
+    assert any(s.get("references") for s in full["statements"])

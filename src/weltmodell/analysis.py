@@ -113,7 +113,7 @@ def serialize_statements(
 ) -> list[Any]:
     """Einheitliche Statement-Serialisierung: ids = nur Statement-IDs,
     compact = Zeile ohne Qualifier/Quellen, full = exakt wie welt_entity
-    (mit Qualifiern + Quellen)."""
+    mit output=full (mit Qualifiern + Quellen)."""
     if output == "ids":
         return [str(r["id"]) for r in rows]
     for r in rows:
