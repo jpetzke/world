@@ -567,6 +567,13 @@ def test_sql_ablehnungen(conn, graph):
             analysis.sql_query(conn, query=query)
 
 
+def test_sql_unknown_column_nennt_spalten(conn, graph):
+    conn.commit()
+    with pytest.raises(ValidationError,
+                       match=r"Verfügbare Spalten: v_tool_log\(id, ts, tool"):
+        analysis.sql_query(conn, query="SELECT follows_core FROM v_tool_log")
+
+
 # --- Shared-Semantik über alle neuen Tools ----------------------------------------
 
 

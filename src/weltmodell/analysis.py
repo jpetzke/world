@@ -873,6 +873,19 @@ def _validate_sql(query: str) -> None:
             raise ValidationError(f"Funktion '{name}' ist nicht erlaubt.")
 
 
+def _view_columns_hint(conn: psycopg.Connection, query: str) -> str:
+    """Spaltenlisten der in der Query referenzierten Whitelist-Views."""
+    views = [v for v in SQL_VIEWS if re.search(rf"\b{v}\b", query, re.IGNORECASE)]
+    parts = []
+    for v in views:
+        cols = conn.execute(
+            """SELECT column_name FROM information_schema.columns
+               WHERE table_name = %s ORDER BY ordinal_position""", (v,),
+        ).fetchall()
+        parts.append(f"{v}({', '.join(c['column_name'] for c in cols)})")
+    return " Verfügbare Spalten: " + "; ".join(parts) if parts else ""
+
+
 def sql_query(
     conn: psycopg.Connection, *, query: str, limit: int = 500
 ) -> dict[str, Any]:
@@ -893,6 +906,12 @@ def sql_query(
         truncated = cur.fetchone() is not None
     except psycopg.errors.QueryCanceled:
         raise ValidationError("Query-Timeout: Abbruch nach 5 Sekunden.")
+    except psycopg.errors.UndefinedColumn as exc:
+        # Prod-Muster: Agenten raten Spaltennamen und suchen dann in der Doku.
+        # Die Spaltenlisten der referenzierten Views beenden die Schleife.
+        primary = exc.diag.message_primary if exc.diag else str(exc)
+        conn.rollback()
+        raise ValidationError(f"SQL-Fehler: {primary}.{_view_columns_hint(conn, query)}")
     except psycopg.Error as exc:
         primary = exc.diag.message_primary if exc.diag else None
         raise ValidationError(f"SQL-Fehler: {primary or exc}")
