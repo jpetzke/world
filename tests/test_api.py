@@ -137,3 +137,14 @@ def test_api_graph_snapshot(client):
         assert edge["rank"] != "deprecated"
     # owns_account-Kante aus dem Ingest-Test muss sichtbar sein
     assert any(e["predicate_id"] == "owns_account" for e in graph["edges"])
+
+
+def test_api_sql_whitelist(client):
+    r = client.post("/api/sql", json={
+        "query": "SELECT tool, count(*) AS n FROM v_tool_log GROUP BY tool",
+    })
+    assert r.status_code == 200
+    assert "rows" in r.json()
+
+    r = client.post("/api/sql", json={"query": "SELECT * FROM statement"})
+    assert r.status_code == 422

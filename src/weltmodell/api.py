@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import api_keys, auth, files, follower_import, graph_metrics, mcp_auth, pipeline, queries, registry, resolution, statements
+from . import analysis, api_keys, auth, files, follower_import, graph_metrics, mcp_auth, pipeline, queries, registry, resolution, statements
 from .ai import router as ai_router
 from .auth import require_auth, require_scope
 from .config import get_public_url, get_session_secret, is_prod
@@ -306,6 +306,11 @@ class ApiKeyCreate(BaseModel):
     scope: Literal["read", "write", "admin"]
 
 
+class SqlPayload(BaseModel):
+    query: str
+    limit: int = 500
+
+
 # --- Endpoints ---------------------------------------------------------------
 
 
@@ -482,6 +487,12 @@ def post_graph_path(payload: PathPayload, conn=Depends(db)):
 def post_graph_recompute(conn=Depends(db)):
     """Expliziter Rebuild von Community/PageRank/Grad (sonst lazy nach 24h)."""
     return graph_metrics.recompute(conn)
+
+
+@admin_router.post("/sql")
+def post_sql(payload: SqlPayload, conn=Depends(db)):
+    """Read-only-SQL auf die Whitelist-Views — dieselbe Guard wie welt_sql."""
+    return analysis.sql_query(conn, query=payload.query, limit=payload.limit)
 
 
 @read_router.get("/entities")
