@@ -1026,7 +1026,9 @@ async def welt_decide_proposal(
     decision: Literal["approve", "reject"],
 ) -> dict[str, Any]:
     """Proposal entscheiden. Approve prüft hart (Parent-kind-Match, Domain/
-    Range existieren) und schreibt in die Registry. Vor dem Approve gegen die
+    Range existieren) und schreibt in die Registry. Inverse Prädikat-Paare
+    (a.inverse=b, b.inverse=a): beide proposen, EINES approven — das pending
+    Gegenstück wird atomar mit angelegt. Vor dem Approve gegen die
     Design-Regeln der Verfassung prüfen — ein falsch approbierter Typ ist
     teuer. Bei Zweifel: reject — oder welt_amend_proposal zum Nachschärfen."""
     _require_write()

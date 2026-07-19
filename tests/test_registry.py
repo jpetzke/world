@@ -84,6 +84,36 @@ def test_gate_approves_predicate_and_sets_inverse(conn):
     assert registry.get_predicate(conn, "mentored_by")["inverse_id"] == "mentors"
 
 
+def test_gate_approves_inverse_pair_atomically(conn):
+    # Henne-Ei: beide Seiten nur pending — Approve einer Seite legt das Paar an
+    a = registry.propose_predicate(
+        conn, predicate_id="elternteil_von", label="Elternteil von",
+        range_kind="entity", domain_type="Person", range_type="Person",
+        cardinality="n:m", inverse_id="kind_von", proposed_by="pytest",
+    )
+    b = registry.propose_predicate(
+        conn, predicate_id="kind_von", label="Kind von",
+        range_kind="entity", domain_type="Person", range_type="Person",
+        cardinality="n:m", inverse_id="elternteil_von", proposed_by="pytest",
+    )
+    registry.approve_predicate(conn, str(a["id"]))
+    assert registry.get_predicate(conn, "elternteil_von")["inverse_id"] == "kind_von"
+    assert registry.get_predicate(conn, "kind_von")["inverse_id"] == "elternteil_von"
+    # Gegenstück ist mit-approved
+    with pytest.raises(RegistryError, match="bereits 'approved'"):
+        registry.approve_predicate(conn, str(b["id"]))
+
+
+def test_gate_rejects_inverse_without_pending_partner(conn):
+    p = registry.propose_predicate(
+        conn, predicate_id="hat_teil", label="hat Teil", range_kind="entity",
+        domain_type="Person", range_type="Person", cardinality="n:m",
+        inverse_id="teil_von_nirgends", proposed_by="pytest",
+    )
+    with pytest.raises(RegistryError, match="existiert nicht"):
+        registry.approve_predicate(conn, str(p["id"]))
+
+
 def test_gate_rejects_duplicate_type_proposal(conn):
     with pytest.raises(RegistryError, match="existiert bereits"):
         registry.propose_type(

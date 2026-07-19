@@ -322,8 +322,19 @@ def approve_predicate(conn: psycopg.Connection, proposal_id: str) -> dict:
             raise RegistryError(f"Range-Typ '{prop['range_type']}' existiert nicht")
     elif prop["range_type"]:
         raise RegistryError("range_type nur bei range_kind='entity' erlaubt")
+    inverse_partner = None  # pending Gegenstück eines Henne-Ei-Paars
     if prop["inverse_id"] and prop["inverse_id"] != prop["predicate_id"] and not get_predicate(conn, prop["inverse_id"]):
-        raise RegistryError(f"Inverses Prädikat '{prop['inverse_id']}' existiert nicht")
+        inverse_partner = conn.execute(
+            """SELECT id FROM proposed_predicate
+               WHERE predicate_id = %s AND status = 'pending'""",
+            (prop["inverse_id"],),
+        ).fetchone()
+        if inverse_partner is None:
+            raise RegistryError(
+                f"Inverses Prädikat '{prop['inverse_id']}' existiert nicht — "
+                "erst anlegen/proposen; liegt es als pending Proposal vor, "
+                "wird das Paar beim Approve atomar angelegt"
+            )
     if prop["identifying"] and (
         prop["range_kind"] != "string" or prop["cardinality"] != "1:1"
     ):
@@ -345,7 +356,8 @@ def approve_predicate(conn: psycopg.Connection, proposal_id: str) -> dict:
         (prop["predicate_id"], prop["label"], prop["domain_type"],
          prop["domain_interface"], prop["range_kind"], prop["range_type"],
          prop["cardinality"],
-         prop["predicate_id"] if prop["inverse_id"] == prop["predicate_id"] else prop["inverse_id"],
+         prop["predicate_id"] if prop["inverse_id"] == prop["predicate_id"]
+         else None if inverse_partner else prop["inverse_id"],
          prop["identifying"], prop["wikidata_pid"], prop["schema_org"]),
     )
     # Gegenrichtung automatisch eintragen (§2.3)
@@ -353,6 +365,16 @@ def approve_predicate(conn: psycopg.Connection, proposal_id: str) -> dict:
         conn.execute(
             "UPDATE predicate SET inverse_id = %s WHERE id = %s AND inverse_id IS NULL",
             (prop["predicate_id"], prop["inverse_id"]),
+        )
+    # Henne-Ei-Paar: das pending Gegenstück in derselben Transaktion approven.
+    # Unsere Zeile existiert bereits (inverse_id NULL wegen FK), dessen
+    # Gegenrichtungs-UPDATE füllt sie; zeigt der Partner woandershin,
+    # trägt der Fallback die eigene Deklaration nach.
+    if inverse_partner:
+        approve_predicate(conn, str(inverse_partner["id"]))
+        conn.execute(
+            "UPDATE predicate SET inverse_id = %s WHERE id = %s AND inverse_id IS NULL",
+            (prop["inverse_id"], prop["predicate_id"]),
         )
     return _decide(conn, "proposed_predicate", proposal_id, "approved")
 
