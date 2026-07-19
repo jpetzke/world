@@ -657,9 +657,11 @@ def cluster(
     predicates: list[str] | None = None,
     min_size: int = 3,
     algorithm: str = "label_propagation",
+    member_limit: int = 25,
 ) -> dict[str, Any]:
     """Community-Detection (igraph) über den gefilterten Kantensatz.
-    Rückgabe: Cluster mit compact-Membern, größte zuerst."""
+    Rückgabe: Cluster mit compact-Membern (max. member_limit pro Cluster,
+    size nennt die echte Größe), größte zuerst."""
     if algorithm not in ("label_propagation", "louvain"):
         raise ValidationError(
             f"Ungültiger algorithm '{algorithm}' "
@@ -667,6 +669,8 @@ def cluster(
         )
     if min_size < 1:
         raise ValidationError("min_size muss >= 1 sein")
+    if member_limit < 1:
+        raise ValidationError("member_limit muss >= 1 sein")
 
     edges = _load_edges(conn, predicates=predicates)
     g, nodes = _build_igraph(edges)
@@ -686,11 +690,12 @@ def cluster(
         (sorted(members) for members in groups.values() if len(members) >= min_size),
         key=lambda m: (-len(m), m[0]),
     )
-    all_ids = [n for m in kept for n in m]
+    all_ids = [n for m in kept for n in m[:member_limit]]
     ser = dict(zip(all_ids, serialize_entities(conn, all_ids, "compact")))
     return {
         "clusters": [
-            {"size": len(m), "members": [ser[n] for n in m]} for m in kept
+            {"size": len(m), "members": [ser[n] for n in m[:member_limit]]}
+            for m in kept
         ],
         "total": total, "min_size": min_size, "algorithm": algorithm,
     }

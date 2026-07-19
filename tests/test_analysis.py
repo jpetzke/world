@@ -453,6 +453,16 @@ def test_cluster_trennt_freundeskreise(conn, graph):
     assert cluster_von[c_ids[0]] != cluster_von[d_ids[0]]
 
 
+def test_cluster_member_limit_kappt(conn, graph):
+    r = analysis.cluster(conn, predicates=["knows"], min_size=2, member_limit=2)
+    assert r["clusters"]
+    for cl in r["clusters"]:
+        assert len(cl["members"]) <= 2
+        assert cl["size"] >= len(cl["members"])  # size bleibt die echte Größe
+    with pytest.raises(ValidationError, match="member_limit"):
+        analysis.cluster(conn, member_limit=0)
+
+
 def test_cluster_min_size_filtert(conn, graph):
     r = analysis.cluster(conn, predicates=["knows"], min_size=10)
     fixture_ids = {graph[f"c{i}"] for i in range(1, 5)}

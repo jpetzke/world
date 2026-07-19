@@ -636,15 +636,17 @@ async def welt_cluster(
     predicates: list[str] | None = None,
     min_size: int = 3,
     algorithm: Literal["label_propagation", "louvain"] = "label_propagation",
+    member_limit: int = 25,
 ) -> dict[str, Any]:
     """Community-Detection: zusammenhängende Gruppen (Freundeskreise,
     Themencluster) im (per predicates gefilterten) Graphen. Liefert Cluster
     mit Membern ({id, label, type_id}) und Größe, größte zuerst; min_size
-    blendet Kleinstcluster aus. total nennt die Clusterzahl vor dem
-    min_size-Filter."""
+    blendet Kleinstcluster aus, member_limit kappt die Member-Liste pro
+    Cluster (size nennt die echte Größe). total nennt die Clusterzahl vor
+    dem min_size-Filter."""
     return await _run(
         partial(analysis.cluster, predicates=predicates, min_size=min_size,
-                algorithm=algorithm)
+                algorithm=algorithm, member_limit=member_limit)
     )
 
 
