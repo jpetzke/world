@@ -221,6 +221,27 @@ def test_preview_reflects_existing_after_commit(conn):
 
 # --- Batch ------------------------------------------------------------------
 
+def test_same_file_twice_in_one_batch(conn):
+    # Zweimal dieselbe Datei in EINEM Commit-Aufruf (eine Transaktion): die
+    # zweite sieht die Writes der ersten (read-your-writes) → dedup greift.
+    f = _file("followers", "igx_dup", [_user("igx_dupfol", pk="4242")])
+    res = commit_files(conn, [
+        {"filename": "dup.json", "data": f},
+        {"filename": "dup.json", "data": f},
+    ])
+    assert res["totals"]["accounts_created"] == 2      # owner + follower, EINMAL
+    assert res["totals"]["follows_created"] == 1
+    assert res["totals"]["follows_confirmed"] == 1     # zweite Datei re-bestätigt
+    owner = _account(conn, "igx_dup")
+    fol = _account(conn, "igx_dupfol")
+    follows = _active_follows(conn, fol["id"], owner["id"])
+    assert len(follows) == 1                            # kein Duplikat-Statement
+    refs = conn.execute(
+        "SELECT count(*) AS n FROM reference WHERE statement_id = %s", (follows[0]["id"],)
+    ).fetchone()["n"]
+    assert refs == 2                                    # zwei Quellen (Provenance)
+
+
 def test_batch_isolates_broken_file(conn):
     items = [
         {"filename": "good.json", "data": _file("following", "igx_batch", [_user("igx_gg", pk="3")])},
