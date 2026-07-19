@@ -5,6 +5,7 @@ erzwungene Code-Pfade, nicht Konvention. Gilt für Menschen- und
 LLM-Writes gleichermaßen (Invariante 2).
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import analysis, api_keys, auth, files, follower_import, graph_metrics, mcp_auth, pipeline, queries, registry, resolution, statements
+from . import analysis, api_keys, auth, files, follower_import, graph_metrics, instagram_import, mcp_auth, pipeline, queries, registry, resolution, statements
 from .ai import router as ai_router
 from .auth import require_auth, require_scope
 from .config import get_public_url, get_session_secret, is_prod
@@ -573,6 +574,34 @@ def post_follower_list_commit(payload: FollowerListCommitPayload, conn=Depends(d
         owner_entity_id=payload.owner_entity_id, direction=payload.direction,
         observed_at=payload.observed_at, agent=payload.agent,
     )
+
+
+async def _read_instagram_files(files: list[UploadFile]) -> list[dict[str, Any]]:
+    """Multipart-Dateien → [{filename, data}] bzw. {filename, error}. JSON-Decode-
+    und Größen-Fehler kippen nicht den Batch — sie werden pro Datei gemeldet."""
+    items: list[dict[str, Any]] = []
+    for f in files:
+        filename = f.filename or "unbenannt.json"
+        data = await f.read()
+        if len(data) > MAX_UPLOAD_BYTES:
+            items.append({"filename": filename,
+                          "error": f"Datei zu groß (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB)."})
+            continue
+        try:
+            items.append({"filename": filename, "data": json.loads(data)})
+        except json.JSONDecodeError as e:
+            items.append({"filename": filename, "error": f"Kein gültiges JSON: {e}"})
+    return items
+
+
+@write_router.post("/ingest/instagram/preview")
+async def post_instagram_preview(files: list[UploadFile], conn=Depends(db)):
+    return instagram_import.preview_files(conn, await _read_instagram_files(files))
+
+
+@write_router.post("/ingest/instagram/commit", status_code=201)
+async def post_instagram_commit(files: list[UploadFile], conn=Depends(db)):
+    return instagram_import.commit_files(conn, await _read_instagram_files(files))
 
 
 @write_router.post("/ingest", status_code=201)
